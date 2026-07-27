@@ -1,0 +1,51 @@
+# Contexte de construction minimal : tout ce qui n'est pas necessaire a la
+# construction de l'image est exclu, pour la vitesse et pour eviter qu'un
+# fichier local sensible n'entre dans une couche d'image.
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+*.local
+.mcp.json
+.claude/
+
+# Dependances et artefacts : reinstalles et reconstruits dans l'image
+node_modules
+.next
+out
+build
+dist
+*.tsbuildinfo
+
+# Historique et outillage de developpement
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Tests et rapports : l'image de production n'en a pas besoin
+coverage
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# Documentation et maquettes : lourdes et inutiles a l'execution
+docs
+backlog
+prompts
+CHANGELOG.md
+README.md
+CLAUDE.md
+
+# Infrastructure locale
+docker-compose.yml
+docker/
+
+# Journaux et fichiers temporaires
+logs
+*.log
+tmp
+temp
