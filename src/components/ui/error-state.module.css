@@ -1,0 +1,45 @@
+.errorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--radius-pill);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+}
+
+.description {
+  max-width: 34rem;
+  color: var(--color-text-muted);
+}
+
+.action {
+  margin-top: var(--space-2);
+}
+
+.toneDanger .icon {
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-solid);
+}
+
+.toneWarning .icon {
+  background-color: var(--color-warning-surface);
+  color: var(--color-warning-solid);
+}
+
+.toneNeutral .icon {
+  background-color: var(--color-neutral-surface);
+  color: var(--color-neutral-solid);
+}

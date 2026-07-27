@@ -1,0 +1,78 @@
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid;
+  border-radius: var(--radius-xl);
+}
+
+.icon {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-snug);
+}
+
+.content {
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-snug);
+}
+
+.title + .content {
+  margin-top: var(--space-1);
+}
+
+.info {
+  background-color: var(--color-info-surface);
+  border-color: var(--color-info-border);
+  color: var(--color-info-text);
+}
+
+.info .icon {
+  color: var(--color-info-solid);
+}
+
+.success {
+  background-color: var(--color-success-surface);
+  border-color: var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.success .icon {
+  color: var(--color-success-solid);
+}
+
+.warning {
+  background-color: var(--color-warning-surface);
+  border-color: var(--color-warning-border);
+  color: var(--color-warning-text);
+}
+
+.warning .icon {
+  color: var(--color-warning-solid);
+}
+
+.danger {
+  background-color: var(--color-danger-surface);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
+.danger .icon {
+  color: var(--color-danger-solid);
+}
+
+/* Un lien à l'intérieur d'un encart reste souligné : sa nature ne dépend pas de la couleur. */
+.alert a {
+  color: inherit;
+  text-decoration: underline;
+}

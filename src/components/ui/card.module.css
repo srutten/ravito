@@ -1,0 +1,49 @@
+/* Grande carte blanche à coins très arrondis et ombre douce, comme sur la maquette. */
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-md);
+}
+
+.flat {
+  box-shadow: none;
+}
+
+.subtle {
+  background-color: var(--color-surface-subtle);
+  box-shadow: none;
+}
+
+.paddingNormal {
+  padding: var(--space-6);
+}
+
+.paddingLarge {
+  padding: var(--space-7) var(--space-6);
+}
+
+.paddingNone {
+  padding: 0;
+}
+
+.title {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-xl);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.description {
+  margin-bottom: var(--space-5);
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 48rem) {
+  .paddingNormal {
+    padding: var(--space-7);
+  }
+
+  .paddingLarge {
+    padding: var(--space-8);
+  }
+}

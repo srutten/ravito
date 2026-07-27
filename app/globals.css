@@ -1,0 +1,335 @@
+/*
+ * Jetons de conception et base globale (critère 14 de US-001).
+ *
+ * Les valeurs sont extraites de la maquette de référence
+ * `docs/design/maquette-accueil-connexion-mobile.png` puis corrigées lorsque le contraste ne
+ * satisfaisait pas le niveau AA exigé par docs/screens.md, section Accessibilité.
+ *
+ * Correction assumée sur l'orange de la marque : la valeur de la maquette (#e8420e) n'atteint
+ * que 4,05:1 sur blanc. Elle est conservée telle quelle pour les aplats et le décor, où le seuil
+ * applicable est de 3:1, et deux variantes plus foncées sont introduites :
+ * - #d63a06 pour un fond portant du texte blanc (4,70:1) ;
+ * - #b7300a pour du texte orange sur une surface claire (6,10:1).
+ *
+ * Aucune police, aucune image, aucune icône n'est chargée depuis une origine tierce : la
+ * politique de sécurité du contenu posée par `middleware.ts` les bloquerait.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- Échelle typographique ---------------------------------------------------------- */
+  --font-family-base:
+    system-ui, -apple-system, "Segoe UI", roboto, "Helvetica Neue", arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-md: 1.0625rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 1.875rem;
+  --font-size-3xl: clamp(2.125rem, 1.7rem + 2.1vw, 2.75rem);
+  --line-height-tight: 1.15;
+  --line-height-snug: 1.35;
+  --line-height-base: 1.6;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --letter-spacing-tight: -0.02em;
+
+  /* --- Espacements, base 4 pixels ------------------------------------------------------ */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 2.5rem;
+  --space-9: 3rem;
+  --space-10: 4rem;
+
+  /* --- Rayons -------------------------------------------------------------------------- */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.75rem;
+  --radius-pill: 999rem;
+
+  /* --- Ombres -------------------------------------------------------------------------- */
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 6%);
+  --shadow-sm: 0 2px 8px rgb(15 23 42 / 8%);
+  --shadow-md: 0 12px 32px rgb(15 23 42 / 12%);
+  --shadow-lg: 0 20px 50px rgb(15 23 42 / 16%);
+
+  /* --- Cibles tactiles et hauteurs de contrôle ----------------------------------------- */
+  /* 44 pixels : minimum imposé par docs/screens.md, taille minimale des cibles tactiles. */
+  --target-min: 2.75rem;
+  /* 52 pixels : hauteur généreuse des boutons et des champs de la maquette. */
+  --control-height: 3.25rem;
+
+  /* --- Mise en page --------------------------------------------------------------------- */
+  --layout-max-width: 40rem;
+  --layout-gutter: var(--space-5);
+
+  /* --- Mouvement ------------------------------------------------------------------------ */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* --- Palette de marque ---------------------------------------------------------------- */
+  --color-brand-050: #fff3ee;
+  --color-brand-100: #ffdfd2;
+  --color-brand-500: #e8420e;
+  --color-brand-600: #d63a06;
+  --color-brand-700: #b7300a;
+
+  /* --- Surfaces et texte ---------------------------------------------------------------- */
+  --color-background: #eef1f5;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f6f8fa;
+  --color-surface-raised: #ffffff;
+  --color-border: #d8dde5;
+  --color-border-strong: #b9c2ce;
+  --color-text: #14171c;
+  --color-text-muted: #52606d;
+  --color-text-on-solid: #ffffff;
+
+  /* --- Action secondaire, liens ---------------------------------------------------------- */
+  --color-accent-surface: #eaf2fc;
+  --color-accent-border: #b6d0f2;
+  --color-accent-solid: #0b57c7;
+  --color-accent-text: #0b57c7;
+  --color-accent-icon: #0b3d91;
+
+  --color-link: var(--color-accent-text);
+  --color-link-hover: #08408f;
+  --color-focus: #0b57c7;
+
+  /* --- Action primaire ------------------------------------------------------------------- */
+  --color-primary-surface: var(--color-brand-600);
+  --color-primary-surface-hover: var(--color-brand-700);
+  --color-primary-text: var(--color-text-on-solid);
+  --color-brand-text: var(--color-brand-700);
+
+  /* --- Couleurs sémantiques -------------------------------------------------------------- */
+  --color-success-surface: #e8f6ed;
+  --color-success-border: #a9dcbd;
+  --color-success-solid: #16a34a;
+  --color-success-text: #15803d;
+
+  --color-warning-surface: #fff5e6;
+  --color-warning-border: #f2d199;
+  --color-warning-solid: #d97706;
+  --color-warning-text: #96530a;
+
+  --color-danger-surface: #fdeceb;
+  --color-danger-border: #f5c4bf;
+  --color-danger-solid: #c62828;
+  --color-danger-text: #b3261e;
+
+  --color-info-surface: var(--color-accent-surface);
+  --color-info-border: var(--color-accent-border);
+  --color-info-solid: var(--color-accent-icon);
+  --color-info-text: var(--color-accent-text);
+
+  --color-neutral-surface: #eef1f5;
+  --color-neutral-border: var(--color-border);
+  --color-neutral-solid: #6b7684;
+  --color-neutral-text: var(--color-text-muted);
+
+  /* --- Hero de l'accueil, reconstitué en dégradé et en SVG ------------------------------- */
+  /* Aucune photographie de sinistre réel n'est stockée dans le dépôt. */
+  --hero-sky-top: #eef2f7;
+  --hero-sky-bottom: #f7e2d2;
+  --hero-glow: #f79a4e;
+  --hero-ridge-far: #ccd6e2;
+  --hero-ridge-near: #b3c0d0;
+  --hero-text: var(--color-text);
+  --hero-text-muted: #46525f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /*
+     * Thème sombre dérivé : la maquette est en thème clair. Chaque couleur de premier plan a été
+     * choisie pour conserver au moins 4,5:1 sur sa surface d'accueil, et 3:1 pour les éléments
+     * purement graphiques.
+     */
+    --color-background: #0d1117;
+    --color-surface: #161b22;
+    --color-surface-subtle: #1c232c;
+    --color-surface-raised: #1b222b;
+    --color-border: #2d353f;
+    --color-border-strong: #3d4753;
+    --color-text: #e8ecf1;
+    --color-text-muted: #a7b1bd;
+
+    --color-accent-surface: #12253f;
+    --color-accent-border: #2b4a76;
+    --color-accent-solid: #2f6fd0;
+    --color-accent-text: #7fb0ff;
+    --color-accent-icon: #7fb0ff;
+    --color-link-hover: #a8c9ff;
+    --color-focus: #7fb0ff;
+
+    --color-brand-text: #ff9666;
+
+    --color-success-surface: #10281a;
+    --color-success-border: #235f3a;
+    --color-success-solid: #38b866;
+    --color-success-text: #5fd08a;
+
+    --color-warning-surface: #2c2008;
+    --color-warning-border: #6a4c12;
+    --color-warning-solid: #d99320;
+    --color-warning-text: #f0b95c;
+
+    --color-danger-surface: #33150f;
+    --color-danger-border: #6d2b22;
+    --color-danger-solid: #f0776a;
+    --color-danger-text: #ff9a90;
+
+    --color-neutral-surface: #1c232c;
+    --color-neutral-solid: #8b95a3;
+
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-sm: 0 2px 8px rgb(0 0 0 / 45%);
+    --shadow-md: 0 12px 32px rgb(0 0 0 / 55%);
+    --shadow-lg: 0 20px 50px rgb(0 0 0 / 60%);
+
+    --hero-sky-top: #121821;
+    --hero-sky-bottom: #2b1c15;
+    --hero-glow: #b8501c;
+    --hero-ridge-far: #1a2029;
+    --hero-ridge-near: #232c38;
+    --hero-text: var(--color-text);
+    --hero-text-muted: #b6c0cc;
+  }
+}
+
+/* --- Remise à zéro minimale ------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: var(--line-height-tight);
+  font-weight: var(--font-weight-bold);
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--color-link);
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--color-link-hover);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/*
+ * Focus toujours visible et net (docs/screens.md, navigation clavier). L'anneau est posé en
+ * `outline` afin de ne jamais dépendre de la couleur de fond du composant survolé.
+ */
+:where(a, button, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* --- Utilitaires globaux ---------------------------------------------------------------- */
+
+/* Contenu réservé aux technologies d'assistance : lu, jamais affiché. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Respect de `prefers-reduced-motion` (docs/screens.md). Les animations décoratives sont
+ * neutralisées ; les changements d'état restent perceptibles car ils passent par du texte.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  /*
+   * `!important` est ici volontaire et nécessaire : le sélecteur universel a la spécificité la
+   * plus faible qui soit, et la préférence exprimée par la personne doit l'emporter sur toute
+   * règle de composant, présente ou future. C'est l'exception documentée à la règle qui
+   * décourage `!important`.
+   */
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: la préférence utilisateur doit primer */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: la préférence utilisateur doit primer */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: la préférence utilisateur doit primer */
+    transition-duration: 0.01ms !important;
+  }
+}

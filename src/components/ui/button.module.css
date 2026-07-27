@@ -1,0 +1,107 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  /* Cible tactile toujours supérieure au minimum de 44 pixels (docs/screens.md). */
+  min-height: var(--control-height);
+  min-width: var(--target-min);
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.compact {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-base);
+}
+
+.primary {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+}
+
+.primary:hover {
+  background-color: var(--color-primary-surface-hover);
+  color: var(--color-primary-text);
+}
+
+.secondary {
+  background-color: var(--color-surface);
+  border-color: var(--color-accent-border);
+  color: var(--color-accent-text);
+}
+
+.secondary:hover {
+  background-color: var(--color-accent-surface);
+  color: var(--color-link-hover);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--color-link);
+}
+
+.ghost:hover {
+  background-color: var(--color-surface-subtle);
+}
+
+.danger {
+  background-color: var(--color-danger-solid);
+  color: var(--color-text-on-solid);
+}
+
+.danger:hover {
+  background-color: var(--color-danger-text);
+  color: var(--color-text-on-solid);
+}
+
+/* L'état désactivé garde un contraste lisible : il informe, il ne disparaît pas. */
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.spinner {
+  display: inline-flex;
+  flex: 0 0 auto;
+  animation: button-spin 900ms linear infinite;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Sans animation, l'indication « action en cours » reste portée par `aria-busy` et par le
+ * libellé textuel réservé aux lecteurs d'écran.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

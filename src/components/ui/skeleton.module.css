@@ -1,0 +1,44 @@
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.line {
+  height: 0.875rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-subtle) 0%,
+    var(--color-border) 50%,
+    var(--color-surface-subtle) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1400ms ease-in-out infinite;
+}
+
+.block {
+  height: var(--control-height);
+  border-radius: var(--radius-lg);
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/*
+ * Sans animation, le bloc reste un aplat neutre : le chargement est de toute façon annoncé par
+ * le libellé textuel associé.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .line {
+    animation: none;
+    background: var(--color-border);
+  }
+}

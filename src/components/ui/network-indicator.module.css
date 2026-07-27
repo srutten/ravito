@@ -1,0 +1,12 @@
+/*
+ * L'indicateur ne reflète que ce que le navigateur sait réellement. Sans script actif, la page
+ * ne peut rien vérifier : la pastille reste alors absente plutôt que d'afficher un état faux.
+ * L'attribut `data-js` est posé sur la racine du document par le script de `app/layout.tsx`.
+ */
+.indicator {
+  display: none;
+}
+
+:global(:root[data-js="on"]) .indicator {
+  display: inline-flex;
+}

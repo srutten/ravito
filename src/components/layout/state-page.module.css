@@ -1,0 +1,28 @@
+.main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-7) var(--layout-gutter);
+}
+
+/* Hauteur réellement visible sur mobile, barres du navigateur comprises. */
+@supports (min-height: 100svh) {
+  .main {
+    min-height: 100svh;
+  }
+}
+
+/*
+ * Le lien d'évitement donne le focus à cette région : l'anneau reste visible, en retrait pour
+ * ne pas déborder de la fenêtre.
+ */
+.main:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -3px;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--layout-max-width);
+}

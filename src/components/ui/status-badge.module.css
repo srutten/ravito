@@ -1,0 +1,79 @@
+/* Pastille d'état de la maquette : point coloré, libellé textuel, fond clair, coins pleinement arrondis. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: var(--radius-pill);
+  background-color: currentcolor;
+}
+
+.dotHolder {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.neutral {
+  border-color: var(--color-neutral-border);
+  color: var(--color-neutral-text);
+}
+
+.neutral .dotHolder {
+  color: var(--color-neutral-solid);
+}
+
+.info {
+  border-color: var(--color-info-border);
+  color: var(--color-info-text);
+}
+
+.info .dotHolder {
+  color: var(--color-info-solid);
+}
+
+.success {
+  border-color: var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.success .dotHolder {
+  color: var(--color-success-solid);
+}
+
+.warning {
+  border-color: var(--color-warning-border);
+  color: var(--color-warning-text);
+}
+
+.warning .dotHolder {
+  color: var(--color-warning-solid);
+}
+
+.danger {
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
+.danger .dotHolder {
+  color: var(--color-danger-solid);
+}
+
+.compact {
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+}

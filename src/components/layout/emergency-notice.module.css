@@ -1,0 +1,38 @@
+/*
+ * Bandeau de non-signalement. Sur petit écran il est collé au bas de la fenêtre : quelle que
+ * soit la longueur du contenu, la consigne reste visible sans défilement. À partir de la
+ * tablette, la page tient dans la fenêtre et le bandeau reprend sa place dans le flux.
+ */
+.notice {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: var(--space-3) var(--layout-gutter) calc(var(--space-3) + env(safe-area-inset-bottom));
+  background-color: var(--color-danger-surface);
+  border-top: 1px solid var(--color-danger-border);
+}
+
+.inner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.icon {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: var(--color-danger-solid);
+}
+
+@media (min-width: 48rem) {
+  .notice {
+    position: static;
+    padding-block: var(--space-4);
+  }
+}

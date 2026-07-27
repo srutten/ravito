@@ -1,0 +1,26 @@
+/*
+ * Coquille des pages publiques. La colonne occupe au minimum la hauteur de la fenêtre : le
+ * bandeau de non-signalement se retrouve donc en bas de la première vue sur mobile, comme sur
+ * la maquette, même lorsque le contenu est court.
+ */
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Hauteur réellement visible sur mobile, barres du navigateur comprises. */
+@supports (min-height: 100svh) {
+  .shell {
+    min-height: 100svh;
+  }
+}
+
+.main {
+  flex: 1 1 auto;
+}
+
+.main:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -3px;
+}

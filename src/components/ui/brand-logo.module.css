@@ -1,0 +1,33 @@
+.logo {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 6px 14px rgb(216 58 6 / 28%));
+}
+
+.sizeSm {
+  width: 2rem;
+  height: 2rem;
+}
+
+.sizeMd {
+  width: 3rem;
+  height: 3rem;
+}
+
+.sizeLg {
+  width: 4.25rem;
+  height: 4.25rem;
+}
+
+.shield {
+  fill: var(--color-brand-500);
+}
+
+/* Léger assombrissement du flanc droit : profondeur sans dégradé, donc sans identifiant unique. */
+.shade {
+  fill: var(--color-brand-700);
+  opacity: 0.16;
+}
+
+.flame {
+  fill: #ffffff;
+}

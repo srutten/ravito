@@ -1,0 +1,96 @@
+# ---------------------------------------------------------------------------
+# Secrets et configuration locale - NE JAMAIS COMMITER
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.local
+
+# Config MCP / Claude Code (peut contenir des cles d'API)
+.mcp.json
+.claude/settings.local.json
+
+# Cles, certificats, credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+*credentials*.json
+*service-account*.json
+secrets/
+.secrets/
+.netrc
+.npmrc
+
+# Fournisseurs cloud et outillage
+.aws/
+.gcloud/
+.azure/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.vercel/
+
+# ---------------------------------------------------------------------------
+# Dependances et build
+# ---------------------------------------------------------------------------
+node_modules/
+/.next/
+/out/
+/build/
+/dist/
+*.tsbuildinfo
+.turbo/
+.cache/
+
+# ---------------------------------------------------------------------------
+# Tests et couverture
+# ---------------------------------------------------------------------------
+/coverage/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# ---------------------------------------------------------------------------
+# Logs et fichiers temporaires
+# ---------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# ---------------------------------------------------------------------------
+# Base de donnees locale et dumps
+# ---------------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+/backups/
+
+# ---------------------------------------------------------------------------
+# OS et editeurs
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
