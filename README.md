@@ -35,9 +35,68 @@ Le MVP doit couvrir trois parcours complets :
 - `CHANGELOG.md` : journal des modifications, au format Keep a Changelog.
 - `docs/decision-log.md` : journal des décisions d'architecture (ADR).
 
+## Pile de développement en conteneurs
+
+C'est la voie recommandée : elle satisfait la contrainte de `CLAUDE.md` selon laquelle le code doit pouvoir être exécuté localement par une procédure unique, et elle reproduit l'environnement local décrit dans `docs/deployment.md` — base de données, courriels interceptés, stockage fictif, SMS simulés.
+
+Le seul prérequis est Docker avec Docker Compose. Node n'est pas nécessaire sur le poste.
+
+```bash
+npm run stack:up
+```
+
+À défaut de Node sur le poste, la commande équivalente est `docker compose up --build --watch`.
+
+### Services
+
+| Service | Rôle | Adresse par défaut | Variable de port |
+|---|---|---|---|
+| `app` | Application Next en développement | http://localhost:3000 | `APP_PORT` |
+| `db` | PostgreSQL 17 avec PostGIS 3.5 | `localhost:5433` | `POSTGRES_PORT` |
+| `mail` | Interception des courriels, interface de consultation | http://localhost:8026 | `MAIL_UI_PORT`, `MAIL_SMTP_PORT` |
+| `storage` | Stockage objet compatible S3, console d'administration | http://localhost:9003 | `STORAGE_API_PORT`, `STORAGE_CONSOLE_PORT` |
+| `storage-init` | Crée les seaux privés au démarrage puis se termine | — | — |
+
+Tous les ports sont surchargeables par variable d'environnement, afin de ne pas entrer en conflit avec un service déjà présent sur le poste. Les valeurs de repli figurent dans `.env.example`.
+
+Les valeurs par défaut sont volontairement décalées des ports canoniques : 5433 plutôt que 5432, 9002 plutôt que 9000, 1026 plutôt que 1025. Un poste de développement héberge souvent plusieurs piles en parallèle, et les ports canoniques sont les premiers occupés. Ce décalage ne concerne que les ports publiés vers le poste : à l'intérieur du réseau de la composition, les services se joignent par leur nom et leur port natif.
+
+### Commandes
+
+| Commande | Effet |
+|---|---|
+| `npm run stack:up` | Construit si nécessaire, démarre tout, et synchronise les modifications de source dans le conteneur |
+| `npm run stack:start` | Démarre en arrière-plan, sans synchronisation |
+| `npm run stack:stop` | Arrête les conteneurs, conserve les données |
+| `npm run stack:down` | Arrête et supprime les conteneurs, conserve les volumes |
+| `npm run stack:reset` | Détruit les volumes et repart d'un état vierge |
+| `npm run stack:ps` | État et santé de chaque service |
+| `npm run stack:logs` | Journaux en continu |
+| `npm run stack:psql` | Ouvre une session psql sur la base locale |
+| `npm run stack:shell` | Ouvre un interpréteur dans le conteneur applicatif |
+| `npm run image:build` | Construit l'image de production et la nomme `appui-feux:local` |
+
+### Rechargement à chaud
+
+Le code source n'est pas monté en volume : il est synchronisé dans le conteneur par le mécanisme de surveillance de Compose. Ce choix règle deux problèmes courants sur un poste Windows ou macOS.
+
+D'une part, le `node_modules` installé dans l'image n'est jamais masqué par celui du poste : aucun conflit possible entre des binaires natifs compilés pour Linux et ceux du système hôte. D'autre part, les fichiers vivent dans le système de fichiers du conteneur, où la surveillance native fonctionne — un montage lié ne propage pas les événements du système de fichiers à travers la frontière de virtualisation, ce qui rend le rechargement à chaud silencieusement inopérant.
+
+Une modification de `package.json` ou de `package-lock.json` déclenche une reconstruction de l'image, afin que les dépendances du conteneur restent cohérentes avec le verrou.
+
+### Ce que la pile locale garantit
+
+- **Aucun courriel ne quitte le poste.** L'application ne connaît que le serveur SMTP local, qui capture tout. Les messages se consultent dans l'interface du service `mail`.
+- **Les seaux de stockage sont privés.** Un seau pour les documents applicatifs, un seau distinct pour les sauvegardes, conformément à la séparation imposée par `docs/security.md`. Aucun objet n'est accessible sans URL signée.
+- **Aucun SMS réel n'est envoyé.** La simulation est journalisée côté application ; elle sera livrée avec US-072.
+- **Le conteneur applicatif ne s'exécute pas en `root`.**
+- **Les identifiants sont des valeurs de développement**, inertes hors du poste. Ils ne doivent jamais être réutilisés ailleurs.
+
+`docker-compose.yml` décrit uniquement l'environnement local. Il ne constitue jamais un chemin de déploiement : la préproduction et la production sont décrites en Terraform, story US-004.
+
 ## Démarrage sur un poste vierge
 
-Procédure reproductible, à exécuter depuis la racine du dépôt (`fire-support-platform`).
+Voie alternative, sans conteneur pour l'application. Procédure reproductible, à exécuter depuis la racine du dépôt (`fire-support-platform`).
 
 ### Prérequis
 

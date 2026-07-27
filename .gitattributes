@@ -1,0 +1,24 @@
+# Normalisation des fins de ligne.
+# Le depot stocke tout en LF, quelle que soit la plateforme du poste. Sans
+# cette regle, un poste Windows produit des diffs entiers sur des fichiers
+# dont seule la fin de ligne a change, et les scripts copies dans une image
+# Linux deviennent inexecutables.
+* text=auto eol=lf
+
+# Fichiers devant imperativement rester en LF : ils sont executes dans un
+# conteneur Linux.
+*.sh text eol=lf
+*.mjs text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+
+# Fichiers binaires : aucune conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

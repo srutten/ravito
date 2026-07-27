@@ -28,8 +28,18 @@ aucune fonctionnalité métier ; le parcours produit commence au lot 1.
 - Biome comme outil unique de lint et de format, avec un style unique pour tout le dépôt.
 - Deux projets de test Vitest distincts, `unit` et `integration`, et une configuration Playwright
   couvrant un profil mobile et un profil bureau.
-- Base de données locale de développement décrite dans `docker-compose.yml` : PostgreSQL 17 avec
-  l'extension PostGIS 3.5, encodage et locale fixés pour rendre les tris reproductibles.
+- Pile de développement local complète en conteneurs, décrite dans `docker-compose.yml` et démarrée
+  par une commande unique, conformément à l'environnement local de `docs/deployment.md` :
+  PostgreSQL 17 avec PostGIS 3.5 encodage et locale fixés, interception des courriels par serveur
+  SMTP local, stockage objet compatible S3 avec création automatique de seaux privés, application
+  en mode développement. Toutes les images sont épinglées à une version précise.
+- Image applicative en plusieurs étapes dans `docker/app.Dockerfile` : une étape de développement
+  avec rechargement à chaud et une étape de production fondée sur la sortie `standalone` de Next,
+  sans code source ni dépendance de développement, exécutée par un utilisateur non privilégié.
+- Synchronisation du code source par le mécanisme de surveillance de Compose plutôt que par
+  montage lié : le `node_modules` de l'image n'est jamais masqué par celui du poste, et le
+  rechargement à chaud reste fiable depuis un poste Windows ou macOS.
+- Normalisation des fins de ligne par `.gitattributes` : le dépôt stocke tout en LF.
 - Fichier `.env.example` documentant toutes les variables d'environnement du produit, y compris
   celles des lots à venir, sans aucune valeur de secret.
 - Configuration applicative validée au démarrage et observabilité minimale par journal structuré.
@@ -51,6 +61,13 @@ aucune fonctionnalité métier ; le parcours produit commence au lot 1.
 - Aucune valeur de secret dans le dépôt, y compris dans les exemples, conformément à
   `docs/security.md`.
 - Aucune donnée réelle ou nominative dans les jeux de données de démonstration.
+- Les deux seaux de stockage local sont créés privés, et le seau de sauvegarde est distinct du seau
+  de documents, conformément à la séparation imposée par `docs/security.md`.
+- Aucun courriel ne peut quitter un poste de développement : l'application ne connaît que le
+  serveur SMTP local d'interception.
+- Le conteneur applicatif ne s'exécute pas en `root`.
+- Les identifiants de la pile locale sont des valeurs de développement explicites, injectées par
+  substitution d'environnement avec valeur de repli, inertes hors du poste.
 
 ### Dette connue
 
@@ -58,3 +75,7 @@ aucune fonctionnalité métier ; le parcours produit commence au lot 1.
   vers TypeScript 7 doit être instruit avant le lot 3 (ADR-010).
 - Les commandes `npm run db:migrate`, `npm run db:status`, `npm run db:reset` et `npm run db:seed`
   sont déclarées mais leurs scripts sont livrés par la story US-002.
+- Next 16 déprécie la convention de fichier `middleware.ts` au profit de `proxy.ts` et émet un
+  avertissement à chaque construction. Le renommage reste à décider par un ADR.
+- La simulation des SMS de l'environnement local n'est pas encore matérialisée : elle sera
+  journalisée par l'application avec la story US-072. Aucun envoi réel n'est possible d'ici là.

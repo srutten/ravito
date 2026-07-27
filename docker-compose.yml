@@ -1,20 +1,46 @@
-# Base de donnees locale de developpement uniquement.
-# Ne pas utiliser cette definition pour un environnement partage ou de production.
+# Pile de developpement local Appui Feux.
+#
+# ATTENTION : ce fichier ne decrit QUE l'environnement local d'un poste de
+# developpement. Il ne doit jamais servir de chemin de deploiement vers la
+# preproduction ou la production, qui sont decrites en Terraform (US-004).
+#
+# Demarrage : npm run stack:up
+# Les identifiants ci-dessous sont des valeurs de developpement, inertes hors
+# du poste. Aucun secret reel ne doit figurer ici.
+#
+# Tous les ports sont surchargeables par variable d'environnement, afin de ne
+# pas entrer en conflit avec un service deja present sur le poste.
+#
+# Les valeurs par defaut sont volontairement decalees des ports canoniques
+# (5433 et non 5432, 9002 et non 9000, 1026 et non 1025...). Un poste de
+# developpement heberge souvent plusieurs piles simultanement, et les ports
+# canoniques sont les premiers a etre pris. Ce decalage n'a aucun effet a
+# l'interieur du reseau de la composition, ou les services se joignent par
+# leur nom et leur port natif.
+
+name: appui-feux
+
 services:
+  # ---------------------------------------------------------------------
+  # Base de donnees : PostgreSQL 17 avec PostGIS.
+  # L'image active l'extension postgis dans la base par defaut au premier
+  # demarrage ; aucune initialisation manuelle n'est necessaire.
+  # ---------------------------------------------------------------------
   db:
     image: postgis/postgis:17-3.5
-    container_name: fire-support-db
+    container_name: appui-feux-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-fire_support}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fire_support}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-developpement-local-uniquement}
       POSTGRES_DB: ${POSTGRES_DB:-fire_support}
-      # Locale et encodage fixes pour rendre les tris reproductibles entre postes.
+      # Locale et encodage fixes : les tris sont ainsi reproductibles d'un
+      # poste a l'autre et identiques a ceux des environnements distants.
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '${POSTGRES_PORT:-5433}:5432'
     volumes:
-      - fire-support-db-data:/var/lib/postgresql/data
+      - db-data:/var/lib/postgresql/data
     healthcheck:
       test:
         ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-fire_support} -d ${POSTGRES_DB:-fire_support}']
@@ -23,5 +49,175 @@ services:
       retries: 20
       start_period: 10s
 
+  # ---------------------------------------------------------------------
+  # Interception des courriels.
+  # docs/deployment.md, environnement local : « courriels interceptes ».
+  # Aucun message ne peut sortir du poste : l'application parle a ce serveur
+  # SMTP et nulle part ailleurs.
+  # ---------------------------------------------------------------------
+  mail:
+    image: axllent/mailpit:v1.30.5
+    container_name: appui-feux-mail
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 500
+      # Accepte n'importe quelle authentification : le service est local et
+      # n'expose rien vers l'exterieur.
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_DATABASE: /data/mailpit.db
+    ports:
+      - '${MAIL_SMTP_PORT:-1026}:1025'
+      - '${MAIL_UI_PORT:-8026}:8025'
+    volumes:
+      - mail-data:/data
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------------
+  # Stockage objet fictif compatible S3.
+  # docs/deployment.md, environnement local : « stockage fictif ».
+  # ---------------------------------------------------------------------
+  storage:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: appui-feux-storage
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ROOT_USER:-appuifeux}
+      MINIO_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:-developpement-local-uniquement}
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:${STORAGE_CONSOLE_PORT:-9003}
+    ports:
+      - '${STORAGE_API_PORT:-9002}:9000'
+      - '${STORAGE_CONSOLE_PORT:-9003}:9001'
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  # ---------------------------------------------------------------------
+  # Creation des seaux au demarrage.
+  # docs/security.md impose un stockage separe et aucun document accessible
+  # publiquement : les deux seaux sont crees prives et le seau de sauvegarde
+  # est distinct du seau de documents.
+  # Ce service s'execute une fois puis se termine.
+  # ---------------------------------------------------------------------
+  storage-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: appui-feux-storage-init
+    depends_on:
+      storage:
+        condition: service_healthy
+    environment:
+      STORAGE_ROOT_USER: ${STORAGE_ROOT_USER:-appuifeux}
+      STORAGE_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:-developpement-local-uniquement}
+      DOCUMENTS_BUCKET: ${STORAGE_BUCKET:-appui-feux-documents}
+      BACKUPS_BUCKET: ${STORAGE_BACKUP_BUCKET:-appui-feux-sauvegardes}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        mc alias set local http://storage:9000 "$$STORAGE_ROOT_USER" "$$STORAGE_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$DOCUMENTS_BUCKET"
+        mc mb --ignore-existing "local/$$BACKUPS_BUCKET"
+        mc anonymous set none "local/$$DOCUMENTS_BUCKET"
+        mc anonymous set none "local/$$BACKUPS_BUCKET"
+        echo "Seaux prets et prives : $$DOCUMENTS_BUCKET, $$BACKUPS_BUCKET"
+    restart: 'no'
+
+  # ---------------------------------------------------------------------
+  # Application, en mode developpement.
+  #
+  # Le code source n'est PAS monte en volume : il est synchronise dans le
+  # conteneur par « docker compose up --watch ». Deux consequences voulues :
+  #   - node_modules de l'image n'est jamais ecrase par celui du poste hote,
+  #     donc aucun conflit de binaire natif entre Windows et Linux ;
+  #   - les fichiers vivent dans le systeme de fichiers du conteneur, donc la
+  #     surveillance native fonctionne et le rechargement a chaud est fiable,
+  #     y compris depuis un poste Windows.
+  # ---------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: dev
+    container_name: appui-feux-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+      mail:
+        condition: service_healthy
+    environment:
+      APP_ENV: local
+      APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-fire_support}:${POSTGRES_PASSWORD:-developpement-local-uniquement}@db:5432/${POSTGRES_DB:-fire_support}
+      DATABASE_SSL: disable
+      DATABASE_POOL_MAX: '10'
+      DATABASE_STATEMENT_TIMEOUT_MS: '10000'
+      FEATURE_FLAGS_SOURCE: env
+      STORAGE_ENDPOINT: http://storage:9000
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-appui-feux-documents}
+      STORAGE_ACCESS_KEY: ${STORAGE_ROOT_USER:-appuifeux}
+      STORAGE_SECRET_KEY: ${STORAGE_ROOT_PASSWORD:-developpement-local-uniquement}
+      # Courriels : tout part vers le service d'interception, jamais ailleurs.
+      SMTP_HOST: mail
+      SMTP_PORT: '1025'
+      # SMS simules : aucun envoi reel. Le flag reste desactive, la simulation
+      # sera journalisee par l'application (US-072).
+      ENABLE_SMS: 'false'
+      ENABLE_EMAIL: 'false'
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    volumes:
+      # Cache de construction Next, isole du poste hote.
+      - app-next-cache:/app/.next
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/api/v1/health']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    develop:
+      watch:
+        - action: sync
+          path: ./app
+          target: /app/app
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./public
+          target: /app/public
+        - action: sync+restart
+          path: ./middleware.ts
+          target: /app/middleware.ts
+        - action: sync+restart
+          path: ./next.config.ts
+          target: /app/next.config.ts
+        - action: sync
+          path: ./tsconfig.json
+          target: /app/tsconfig.json
+        # Un changement de dependance impose de reconstruire l'image : le
+        # node_modules du conteneur doit rester coherent avec le verrou.
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+
 volumes:
-  fire-support-db-data:
+  db-data:
+  mail-data:
+  storage-data:
+  app-next-cache:
