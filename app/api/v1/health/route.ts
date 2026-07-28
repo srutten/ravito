@@ -1,5 +1,6 @@
 import { defineRoute } from '@/application/api-route';
 import { getServerConfig } from '@/config/env';
+import { checkDatabase } from '@/infrastructure/database/health-check';
 import { getRequestLogger } from '@/observability/logger';
 
 /**
@@ -9,8 +10,12 @@ import { getRequestLogger } from '@/observability/logger';
  * UTC (docs/api-contract.md, horodatages). Rien d'autre : ni version de dépendance, ni nom
  * d'hôte, ni chaîne de connexion, ni trace.
  *
- * L'objet `checks` est vide au lot 0 et sert de point d'extension : la sonde de base de données
- * relève de la story US-002 et viendra s'y ajouter sans changer la forme de la réponse.
+ * L'objet `checks` porte le détail par dépendance. Il contient aujourd'hui `database` (US-006) et
+ * accueillera les suivantes sans changer la forme de la réponse.
+ *
+ * Le statut global est le plus dégradé des contrôles : une instance dont la base est injoignable
+ * n'est pas apte à servir, même si le processus applicatif répond. Se déclarer sain dans ce cas
+ * serait un faux positif d'exploitation.
  *
  * Cette route statique a priorité sur la route attrape-tout `/api/v1/[...segments]` : dans le
  * routeur de Next, un segment littéral l'emporte sur un segment dynamique.
@@ -23,6 +28,7 @@ type HealthStatus = 'ok' | 'degraded' | 'down';
 
 interface HealthCheck {
   readonly status: HealthStatus;
+  readonly latencyMs?: number;
 }
 
 interface HealthBody {
@@ -43,14 +49,18 @@ const HTTP_STATUS_BY_HEALTH: Readonly<Record<HealthStatus, number>> = {
  * Une configuration illisible rend l'instance inapte à servir. Le statut le dit, sans nommer la
  * variable fautive : le détail part dans les journaux, jamais dans la réponse.
  */
-function buildHealthBody(): HealthBody {
+async function buildHealthBody(): Promise<HealthBody> {
   const checkedAt = new Date().toISOString();
   try {
+    // La version est lue avant la sonde : une configuration illisible rend l'instance inapte
+    // quoi qu'il arrive, inutile d'ouvrir une connexion pour le découvrir.
+    const version = getServerConfig().appVersion;
+    const database = await checkDatabase();
     return {
-      status: 'ok',
-      version: getServerConfig().appVersion,
+      status: database.status === 'ok' ? 'ok' : 'down',
+      version,
       checkedAt,
-      checks: {},
+      checks: { database: { status: database.status, latencyMs: database.latencyMs } },
     };
   } catch (error) {
     getRequestLogger().error(
@@ -62,8 +72,8 @@ function buildHealthBody(): HealthBody {
 }
 
 export const GET = defineRoute(
-  () => {
-    const body = buildHealthBody();
+  async () => {
+    const body = await buildHealthBody();
     return new Response(JSON.stringify(body), {
       status: HTTP_STATUS_BY_HEALTH[body.status],
       headers: {
