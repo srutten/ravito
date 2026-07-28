@@ -1,16 +1,30 @@
 import { hostname } from 'node:os';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetServerConfigCache } from '@/config/env';
+import { checkDatabase } from '@/infrastructure/database/health-check';
 import { logger } from '@/observability/logger';
 import { GET } from '../../app/api/v1/health/route';
 
 /**
- * Sonde de santé publique (US-001 critère 12, docs/observability.md).
+ * Sonde de santé publique (US-001 critère 12, docs/observability.md ; US-006 pour le contrôle de
+ * base de données).
  *
  * Une sonde est lue sans authentification : elle est donc lue par tout le monde, y compris par un
  * attaquant en phase de reconnaissance (docs/threat-model.md). Ce fichier vérifie autant ce
  * qu'elle expose que ce qu'elle tait.
+ *
+ * Le contrôle de base de données est SIMULÉ ici, délibérément. Ce fichier porte sur le contrat de
+ * la route : forme de la réponse, code HTTP, en-têtes, et surtout ce qui ne doit pas fuiter. Le
+ * comportement réel du pool face à une base disponible, injoignable ou muette est couvert par
+ * `database-application-pool.test.ts`, contre une vraie base. Mêler les deux rendrait ce fichier
+ * dépendant d'une base pour vérifier des règles qui n'en dépendent pas.
  */
+
+vi.mock('@/infrastructure/database/health-check', () => ({
+  checkDatabase: vi.fn(),
+}));
+
+const checkDatabaseMock = vi.mocked(checkDatabase);
 
 const BASE_URL = 'https://appui-feux.exemple.test';
 const HEALTH_URL = `${BASE_URL}/api/v1/health`;
@@ -76,6 +90,8 @@ describe('GET /api/v1/health', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(FIXED_INSTANT);
     applyValidConfiguration();
+    // Base disponible par défaut : chaque test qui veut l'inverse le déclare explicitement.
+    checkDatabaseMock.mockResolvedValue({ status: 'ok', latencyMs: 3 });
   });
 
   afterEach(() => {
@@ -103,8 +119,27 @@ describe('GET /api/v1/health', () => {
     expect(body.status).toBe('ok');
     expect(body.version).toBe('1.2.3-test');
     expect(body.checkedAt).toBe(FIXED_INSTANT.toISOString());
-    expect(body.checks).toStrictEqual({});
+    expect(body.checks).toStrictEqual({ database: { status: 'ok', latencyMs: 3 } });
     expect(Object.keys(body).sort()).toStrictEqual(['checkedAt', 'checks', 'status', 'version']);
+  });
+
+  it('déclare l instance hors service quand la base est injoignable', async () => {
+    // Une instance dont la base ne répond pas n'est pas apte à servir. Se déclarer saine serait un
+    // faux positif d'exploitation : l'ordonnanceur laisserait le trafic arriver sur une instance
+    // incapable de traiter la moindre requête métier.
+    checkDatabaseMock.mockResolvedValue({ status: 'down', latencyMs: 2000 });
+
+    const response = await GET(new Request(HEALTH_URL));
+    const payload = await response.text();
+    const body = JSON.parse(payload) as HealthBody;
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('down');
+    expect(body.checks).toStrictEqual({ database: { status: 'down', latencyMs: 2000 } });
+    // Même en échec, la sonde reste muette sur la topologie interne.
+    for (const forbidden of FORBIDDEN_IN_RESPONSE) {
+      expect(payload, `la sonde a divulgué « ${forbidden} »`).not.toContain(forbidden);
+    }
   });
 
   it('mesure l instant présent plutôt qu un instant figé à la construction', async () => {
