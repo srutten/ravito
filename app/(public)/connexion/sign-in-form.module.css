@@ -1,0 +1,42 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.action {
+  /* Bouton primaire pleine largeur, comme sur la maquette. */
+  display: block;
+}
+
+.secondaryActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/*
+ * Décomptes. L'information n'est jamais portée par la seule couleur : le texte dit ce qui est
+ * décompté, pas seulement combien de temps il reste.
+ */
+.countdown {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-text-muted);
+}
+
+/*
+ * Adresse saisie, rappelée à l'étape du code. Coupure forcée : une adresse longue ne doit pas
+ * élargir la carte au-delà de l'écran sur un téléphone.
+ */
+.recipient {
+  margin-top: var(--space-2);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}

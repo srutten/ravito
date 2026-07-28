@@ -1,0 +1,51 @@
+-- =============================================================================
+-- 0008 — Extension citext, pour les identifiants de connexion
+-- Lot 1 · identité
+--
+-- Objet   : rendre l'unicité du courriel insensible à la casse au niveau du
+--           serveur. « alice@example.org » et « Alice@Example.org » désignent
+--           la même boîte : deux comptes distincts pour un seul destinataire
+--           créeraient un compte fantôme recevant des codes à usage unique,
+--           et rendraient la réponse de connexion dépendante de la casse
+--           saisie — donc observable.
+-- Source  : docs/security.md (protection contre le bourrage d'identifiants),
+--           docs/database-design.md (contraintes SQL avant validation
+--           applicative lorsque possible).
+--
+-- Pourquoi une extension et pas seulement une normalisation applicative.
+--   Le lot 1 stocke les identifiants déjà normalisés et le vérifie par
+--   contrainte (voir 0010). Cette normalisation protège l'écriture ; elle ne
+--   protège pas la LECTURE. Une requête qui oublierait d'abaisser la casse
+--   avant de comparer ne créerait pas de doublon, mais renverrait « aucun
+--   compte » là où un autre chemin de code aurait répondu « compte connu ».
+--   Cette différence de comportement entre deux chemins est exactement ce que
+--   le critère de neutralité des réponses interdit. `citext` supprime la classe
+--   de bug au lieu de la confier à la vigilance de chaque appelant.
+--
+-- Pourquoi `citext` plutôt qu'un index fonctionnel `lower(email)`.
+--   Un index fonctionnel n'est utilisé que si la requête reprend exactement la
+--   même expression. Le jour où une jointure écrit `email = $1` sans `lower()`,
+--   l'unicité tient toujours mais la recherche devient un balayage complet, et
+--   le temps de réponse se met à dépendre de la présence du compte
+--   (docs/threat-model.md, énumération de comptes). Le type porte la règle,
+--   la requête n'a plus à s'en souvenir.
+--
+-- Stratégie de retour : aucun fichier `.down.sql`, pour la même raison que 0001.
+--   `DROP EXTENSION citext` cascaderait sur `user_profiles.email`, donc sur
+--   l'identifiant de connexion de tous les comptes. Une extension laissée en
+--   place est inerte pour une version antérieure du code, qui ignore
+--   simplement le type qu'elle n'utilise pas.
+--
+-- Droits requis : `citext` est une extension `trusted` depuis PostgreSQL 13,
+--   elle peut donc être installée par un compte disposant de `CREATE` sur la
+--   base, sans superutilisateur. Sur une instance managée qui refuserait la
+--   commande, l'extension doit être pré-provisionnée par l'hébergeur avant le
+--   déploiement, comme PostGIS (voir 0001).
+-- =============================================================================
+
+CREATE EXTENSION IF NOT EXISTS citext;
+
+-- Aucun `COMMENT ON EXTENSION` : commenter une extension exige d'en être
+-- propriétaire, ce qui n'est pas garanti sur une instance où elle est
+-- pré-provisionnée. Ce fichier étant immuable après fusion (CLAUDE.md), il ne
+-- doit contenir aucune instruction dont le succès dépend du compte utilisé.

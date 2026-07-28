@@ -1,0 +1,23 @@
+-- =============================================================================
+-- Retour arrière de 0010 — Table `user_profiles`
+--
+-- ATTENTION : ce retour arrière DÉTRUIT DES COMPTES. Il n'est légitime que sur
+-- une base de développement ou juste après une migration qui vient d'échouer,
+-- avant toute création de compte réelle. Sur une base portant des comptes, la
+-- voie est un déploiement en plusieurs étapes (docs/database-design.md), pas
+-- une suppression.
+--
+-- Volontairement sans `CASCADE` : `sessions` et `auth_challenges` référencent
+-- cette table, PostgreSQL refusera donc tant que 0013, 0012 et 0011 n'auront
+-- pas été déroulés. Le refus est le comportement recherché — un `CASCADE`
+-- emporterait les sessions ouvertes et les défis en circulation sans le dire.
+--
+-- Aucun garde-fou sur le nombre de lignes, contrairement à
+-- 0005_outbox.down.sql : un tel garde-fou refuserait le retour arrière dès le
+-- premier compte de test créé en local, et serait donc contourné à la première
+-- occasion. La protection réelle est ailleurs — le compte applicatif ne détient
+-- pas le droit de supprimer cette table (0002), et un retour arrière de schéma
+-- ne s'exécute jamais sans sauvegarde vérifiée (docs/operations.md).
+-- =============================================================================
+
+DROP TABLE IF EXISTS public.user_profiles;

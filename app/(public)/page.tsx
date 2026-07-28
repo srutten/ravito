@@ -23,7 +23,7 @@ import styles from './home.module.css';
 // celle de la maquette de référence.
 const BRAND_BASELINE = 'Mobilisation logistique sécurisée';
 
-const AUTHENTICATION_PATH = '/auth';
+const AUTHENTICATION_PATH = '/connexion';
 const TERMS_PATH = '/terms';
 
 export default function HomePage() {

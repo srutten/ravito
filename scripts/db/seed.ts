@@ -158,7 +158,16 @@ function parseList(raw: string): readonly string[] {
  */
 function parseHeader(content: string, fileName: string): SeedBlockHeader {
   const values = new Map<string, string>();
-  for (const line of content.split('\n')) {
+  // Découpage insensible aux fins de ligne. Un fichier restitué en CRLF par git sur un poste
+  // Windows laissait un `\r` en fin de ligne, que `HEADER_PATTERN` ne pouvait pas absorber : le
+  // point ne correspond pas à un retour chariot, et `$` sans le drapeau multiligne n'accepte
+  // aucun caractère résiduel. AUCUNE clé n'était alors reconnue, et le seed refusait de démarrer
+  // en accusant le premier bloc d'avoir un en-tête incomplet.
+  //
+  // Un outil qui lit les fichiers du dépôt ne doit pas dépendre de la politique de fins de ligne
+  // du poste : le moteur de migrations normalise déjà avant de calculer ses empreintes, pour la
+  // même raison.
+  for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed === '') {
       continue;
