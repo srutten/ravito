@@ -438,3 +438,178 @@ RESET ROLE;
 Fréquence, rétention, chiffrement, séparation des accès et preuve du test de
 restauration : `docs/operations.md`. Une purge de rétention et un retour arrière
 de schéma ne s'exécutent jamais sans sauvegarde vérifiée préalable.
+
+---
+
+## Migrations du lot 1 — identité
+
+| N° | Objet | Retour arrière |
+|---|---|---|
+| `0008` | Extension `citext` | note en tête, pas de `.down.sql` |
+| `0009` | Types énumérés du domaine identité | `.down.sql` |
+| `0010` | Table `user_profiles` | `.down.sql`, avec avertissement |
+| `0011` | Table `auth_challenges` (codes à usage unique) | `.down.sql` |
+| `0012` | Table `auth_attempts` (limitation de tentatives) | `.down.sql` |
+| `0013` | Table `sessions` | `.down.sql`, avec procédure d'export |
+
+### Stratégie de retour
+
+`0008` ne fournit pas de retour arrière, pour la raison exacte de `0001` :
+`DROP EXTENSION citext` cascaderait sur `user_profiles.email`, donc sur
+l'identifiant de connexion de tous les comptes. Une extension laissée en place
+est inerte pour une version antérieure du code.
+
+Les cinq autres en fournissent un, **sans `CASCADE`**, et ils doivent être
+déroulés dans l'ordre inverse : `0013`, `0012`, `0011`, `0010`, `0009`. Tout
+autre ordre est refusé par PostgreSQL, et c'est le comportement recherché.
+Vérifié en conditions réelles :
+
+- `0009.down` avant `0010.down` → `cannot drop type user_profile_status because
+  other objects depend on it` ;
+- `0010.down` avant `0011.down` et `0013.down` → `cannot drop table
+  user_profiles because other objects depend on it`.
+
+Deux effets de bord à connaître avant de déclencher un retour arrière :
+
+- `0012.down` **lève tous les blocages en cours**. Ne pas le déclencher en
+  réaction à une campagne de tentatives, elle reprendrait sans limite.
+- `0013.down` **déconnecte tout le monde** — c'est le sens sûr — mais efface
+  aussi la trace des sessions ayant existé. Si une analyse d'incident est en
+  cours, exporter d'abord ; la commande est dans l'en-tête du fichier, et elle
+  exclut volontairement `token_hash`.
+
+### Droits en vigueur à la fin du lot 1
+
+| Table | `fire_support_app` |
+|---|---|
+| `user_profiles` | `SELECT`, `INSERT`, `UPDATE` |
+| `auth_challenges` | `SELECT`, `INSERT`, `UPDATE` |
+| `auth_attempts` | `SELECT`, `INSERT`, `UPDATE` |
+| `sessions` | `SELECT`, `INSERT`, `UPDATE` |
+
+**Aucun `DELETE` nulle part**, et l'omission est délibérée dans les quatre cas :
+
+- `user_profiles` — la clôture d'un compte est un statut (`CLOSED`), pas une
+  suppression. Une suppression physique emporterait en cascade les sessions et
+  les défis, et ferait perdre le lien des lignes d'audit déjà écrites ;
+- `sessions` — la déconnexion est un marquage (`revoked_at`). `DELETE` offrirait
+  à un compte applicatif compromis le moyen d'effacer la trace des sessions
+  qu'il a ouvertes, c'est-à-dire ce qui permet de constater l'intrusion ;
+- `auth_attempts` — supprimer un compteur revient à lever un blocage. La levée
+  normale est l'écoulement du temps ;
+- `auth_challenges` — la purge par ancienneté est une tâche d'exploitation, au
+  même régime que celle d'`outbox`.
+
+### Convention d'empreinte des quatre colonnes hachées
+
+Cinq colonnes du lot 1 sont contraintes au format `^[0-9a-f]{64}$` :
+`auth_challenges.identifier_hash`, `auth_challenges.code_hash`,
+`auth_attempts.subject_hash`, `sessions.token_hash`, `sessions.ip_hash`. La
+contrainte interdit structurellement d'y écrire la valeur en clair — « 482913 »
+et « 192.168.1.1 » ne satisfont pas le motif — exactement comme
+`audit_logs.ip_hash` du lot 0.
+
+**Ce que la contrainte ne dit pas, et qui relève du code.** Un condensé de
+64 caractères hexadécimaux peut être un SHA-256 nu comme un HMAC-SHA-256 ; SQL
+ne les distingue pas. Or les deux ne protègent pas la même chose :
+
+| Colonne | Entropie de la valeur d'origine | Algorithme exigé |
+|---|---|---|
+| `identifier_hash` | un courriel, un téléphone : devinable par dictionnaire | **HMAC**-SHA-256, secret hors base |
+| `code_hash` | six chiffres : un million de possibilités | **HMAC**-SHA-256, secret hors base |
+| `subject_hash` | un identifiant, une IPv4 : quatre milliards au plus | **HMAC**-SHA-256, secret hors base |
+| `token_hash` | jeton tiré au hasard sur ≥ 128 bits | SHA-256 nu suffisant |
+| `ip_hash` | une adresse IP | **HMAC**-SHA-256, secret hors base |
+
+Un condensé nu d'une valeur à faible entropie s'inverse par énumération
+exhaustive en quelques secondes : il ne protège rien. Le secret doit venir du
+gestionnaire de secrets (`docs/security.md`), jamais de la base — sans quoi le
+vol d'une sauvegarde rendrait la clé avec les empreintes.
+
+`subject_hash` porte une exigence supplémentaire : le texte haché doit être
+**préfixé par un marqueur de dimension** (`identifier:`, `source:`, `pair:`).
+Sans préfixe, deux dimensions différentes pourraient produire la même empreinte
+et partager un compteur, et un sujet serait bloqué par les tentatives d'un
+autre.
+
+### Valeurs de `target_type` ajoutées par le lot 1
+
+La convention de casse décrite plus haut s'applique sans changement : majuscules
+et séparateur bas, `^[A-Z][A-Z0-9_]{2,63}$`. Écrire `'UserProfile'` échoue.
+
+```text
+AUTH_CHALLENGE   SESSION   USER_PROFILE
+```
+
+Correspondance à retenir : l'entité `UserProfile` de `docs/domain-model.md`
+donne `USER_PROFILE` dans `target_type`.
+
+### Rétention et purge des tables du lot 1
+
+Trois tables croissent sans limite naturelle. Comme pour `outbox` et
+`audit_logs`, les requêtes sont préparées mais **les durées restent à valider
+juridiquement** (`docs/privacy-rgpd.md`, avertissement final), et la purge
+s'exécute avec le compte de migration, jamais avec le compte applicatif.
+
+`auth_challenges` est la table qui grossit le plus vite : une ligne par demande
+de code, y compris pour les identifiants inconnus, donc y compris pour chaque
+tentative d'un robot. `idx_auth_challenges_expires_at` couvre la sélection.
+
+```sql
+DELETE FROM public.auth_challenges
+WHERE expires_at < now() - interval '30 days';
+```
+
+`auth_attempts` : les compteurs dormants, dont la fenêtre est écoulée depuis
+longtemps et qui ne bloquent plus personne. `idx_auth_attempts_window_started_at`
+couvre la sélection.
+
+```sql
+DELETE FROM public.auth_attempts
+WHERE window_started_at < now() - interval '30 days'
+  AND (blocked_until IS NULL OR blocked_until < now());
+```
+
+`sessions` : les sessions expirées depuis longtemps.
+`idx_sessions_expires_at` couvre la sélection. À ne pas confondre avec la
+révocation, qui n'efface rien.
+
+```sql
+DELETE FROM public.sessions
+WHERE expires_at < now() - interval '90 days';
+```
+
+### Ce qui rend une session valide
+
+Quatre conditions, toutes nécessaires, à vérifier côté serveur à chaque requête :
+
+```sql
+   sessions.revoked_at IS NULL
+AND sessions.expires_at > now()
+AND (user_profiles.sessions_revoked_at IS NULL
+     OR sessions.issued_at > user_profiles.sessions_revoked_at)
+AND user_profiles.status = 'ACTIVE'
+```
+
+La révocation globale s'appuie sur `user_profiles.sessions_revoked_at` : une
+seule écriture coupe tous les accès d'un compte, sans parcourir ni mettre à jour
+la table des sessions. La comparaison est **stricte** — une session émise à
+l'instant exact de la révocation est invalide, parce que dans le doute on coupe.
+Corollaire pour le code : `sessions.issued_at` ne doit **jamais** être réavancé,
+sinon une session révoquée globalement redeviendrait valide en se rafraîchissant
+elle-même. Prolonger une session consiste à repousser `expires_at`.
+
+La quatrième condition porte sur une autre table et c'est celle qu'on oublie.
+L'omettre laisserait une session ouverte survivre à la suspension du compte,
+c'est-à-dire à la première mesure de réponse à incident de `docs/security.md`.
+`docs/permissions.md` en fait un cas de test obligatoire, « accès après
+suspension ».
+
+### Point ouvert : l'adhésion suspendue ne coupe pas encore l'accès
+
+`docs/permissions.md` exige qu'une adhésion suspendue coupe l'accès. Cette
+**cinquième condition n'est pas réalisable au lot 1** : `organization_members`
+n'existe pas encore (US-012 et US-014). Le lot qui crée la table doit ajouter la
+condition à la liste ci-dessus et la couvrir par un test d'accès dédié. Tant que
+ce n'est pas fait, seule la suspension du **compte** coupe l'accès, pas la
+suspension d'une **adhésion**.

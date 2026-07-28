@@ -89,3 +89,53 @@ aucune fonctionnalité métier ; le parcours produit commence au lot 1.
   vers TypeScript 7 doit être instruit avant le lot 3 (ADR-010).
 - Les commandes `npm run db:migrate`, `npm run db:status`, `npm run db:reset` et `npm run db:seed`
   sont déclarées mais leurs scripts sont livrés par la story US-002.
+
+Lot 1 — Identité. Objectif : ouvrir le premier parcours vertical par l'authentification (US-010).
+Ce bloc couvre les décisions d'architecture et le contrat ; les organisations, les appartenances et
+le second facteur arrivent avec US-011, US-012 et US-014.
+
+### Ajouté — Lot 1
+
+- Décisions d'architecture ADR-015 à ADR-018 dans `docs/decision-log.md` : authentification par
+  code à usage unique sans mot de passe, absence d'onglets de rôle sur l'écran de connexion,
+  session opaque côté serveur plutôt que jeton auto-porteur, dépendance d'envoi SMTP.
+- Contrat des cinq routes d'authentification dans `docs/api-contract.md` : demande d'un code,
+  ouverture d'une session, lecture de la session courante, déconnexion, révocation de toutes ses
+  sessions. Corps de requête et de réponse, codes d'erreur, règles de neutralité et exemption
+  motivée d'idempotence sur les deux routes publiques.
+- Code d'erreur `AUTHENTICATION_FAILED`, unique pour les quatre cas d'échec d'un code, afin qu'un
+  code inexistant, expiré, déjà consommé ou erroné soit indiscernable.
+- Note d'arbitrage sur l'écran 2 dans `docs/screens.md` : fusion de l'accueil et de la connexion
+  retenue, trois écarts de maquette arbitrés, périmètre non livré énoncé explicitement.
+
+### Sécurité — Lot 1
+
+- Aucun mot de passe n'est demandé, transmis ni stocké : il n'existe donc aucune base de mots de
+  passe à faire fuiter, et le bourrage d'identifiants perd sa cible.
+- Le code à usage unique n'est jamais conservé en clair. L'empreinte stockée est un HMAC calculé
+  avec `AUTH_SECRET`, qui ne vit pas dans la base : un vol de la seule base ne permet pas de
+  rejouer un code en circulation. Un condensat simple serait inutile sur six chiffres.
+- Réponses neutres imposées par le contrat : un identifiant inconnu obtient la même réponse, le
+  même statut et une durée comparable à un identifiant connu, à la demande de code comme à la
+  vérification. La limitation de tentatives s'applique aux deux avec les mêmes seuils.
+- L'écran de connexion ne laisse plus déclarer un rôle, ce qui supprime à la fois un oracle
+  d'énumération des comptes coordinateurs et une porte d'élévation de privilèges.
+- Session opaque révocable à trois échelles sans redéploiement : déconnexion unitaire, révocation
+  de toutes ses sessions, interrupteur global `FORCE_SESSION_REVOCATION`.
+- Les routes d'authentification sont exemptées de `PLATFORM_READ_ONLY` : le mode lecture seule ne
+  doit pas empêcher un coordinateur de consulter ses missions pendant un incident.
+
+### Limites connues — Lot 1
+
+- Le critère 12 de US-010, qui veut qu'une adhésion suspendue coupe l'accès, n'est pas réalisable :
+  `organization_members` n'existe pas avant US-014. Seule la suspension du profil utilisateur est
+  couverte. Le point d'extension est le calcul serveur de `redirectPath` et la vérification de
+  session.
+- Le second facteur est annoncé par l'interface et livré par US-011. La valeur `MFA_REQUIRED` du
+  champ `nextStep` est réservée et n'est jamais émise.
+- Le canal SMS et le fournisseur d'identité tiers ne sont pas livrés. Seul le courriel transporte
+  le code.
+- La disponibilité de la connexion dépend désormais de la délivrabilité du courriel. Ce risque est
+  reporté sur l'exploitation et doit être couvert par une supervision d'envoi et une procédure de
+  secours dans `docs/operations.md`.
+- Les variables de connexion SMTP doivent être ajoutées à `.env.example`, sans valeur.

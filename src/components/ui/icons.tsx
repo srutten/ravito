@@ -163,6 +163,16 @@ export function ActivityIcon(props: IconProps) {
   );
 }
 
+/** Enveloppe des champs d'identifiant. Reprend l'icône de la maquette, écran de connexion. */
+export function MailIcon(props: IconProps) {
+  return (
+    <svg {...BASE_PROPS} {...props} aria-hidden="true">
+      <rect x="3.2" y="5.4" width="17.6" height="13.2" rx="2.4" />
+      <path d="m3.9 7 7.2 5.3a1.5 1.5 0 0 0 1.8 0L20.1 7" />
+    </svg>
+  );
+}
+
 export function ArrowLeftIcon(props: IconProps) {
   return (
     <svg {...BASE_PROPS} {...props} aria-hidden="true">

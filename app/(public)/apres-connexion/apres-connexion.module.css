@@ -1,0 +1,54 @@
+.definitions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+/*
+ * Une paire par ligne sur mobile, terme au-dessus de la valeur : sur un écran étroit, une mise en
+ * colonnes forcerait la troncature d'un des deux.
+ */
+.definitionRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.term {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+}
+
+.value {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 30rem) {
+  .definitionRow {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .value {
+    text-align: right;
+  }
+}

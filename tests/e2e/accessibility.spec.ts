@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+﻿import { expect, test } from '@playwright/test';
 
 /**
  * Accessibilité de base de l'accueil public (US-001 critère 17, docs/screens.md).
@@ -85,7 +85,7 @@ test.describe('accessibilité de l accueil public', () => {
     await signIn.focus();
     await page.keyboard.press('Enter');
 
-    await expect(page).toHaveURL(/\/auth$/);
+    await expect(page).toHaveURL(/\/connexion$/);
   });
 
   test('nomme la région de consigne de sécurité pour un lecteur d écran', async ({ page }) => {

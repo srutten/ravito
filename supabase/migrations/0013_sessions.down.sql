@@ -1,0 +1,24 @@
+-- =============================================================================
+-- Retour arrière de 0013 — Table `sessions`
+--
+-- Effet immédiat : toutes les sessions ouvertes deviennent invalides, puisque
+-- plus aucune empreinte de jeton n'est retrouvable. Les utilisateurs connectés
+-- sont déconnectés et doivent demander un nouveau code. C'est acceptable — et
+-- c'est même le sens sûr : un retour arrière du mécanisme de session ne doit
+-- pas laisser d'accès ouverts derrière lui.
+--
+-- Ce qui est perdu, en revanche, est la trace des sessions ayant existé.
+-- Si un incident de sécurité est en cours d'analyse, exporter la table avant :
+--
+--   \copy (SELECT id, user_profile_id, issued_at, last_seen_at, expires_at,
+--                 revoked_at, user_agent_summary, ip_hash
+--          FROM public.sessions) TO 'sessions-avant-retour.csv' CSV HEADER
+--
+-- La requête ne sélectionne pas `token_hash` : une empreinte de jeton n'a
+-- aucune valeur d'analyse et son export multiplierait les copies d'un secret
+-- dérivé.
+--
+-- Sans `CASCADE`, comme les autres retours arrière du dépôt.
+-- =============================================================================
+
+DROP TABLE IF EXISTS public.sessions;

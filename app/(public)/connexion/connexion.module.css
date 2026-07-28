@@ -1,0 +1,124 @@
+/*
+ * Mise en page de l'écran de connexion, reprise de la maquette mobile : décor en haut, carte
+ * blanche centrée à grands rayons remontant sur le décor, contenu en une seule colonne.
+ * Le dimensionnement est en unités relatives, la colonne est bornée en `rem` : la page reste
+ * lisible avec une taille de police augmentée et jamais plus large que l'écran.
+ */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  padding: var(--space-5) var(--layout-gutter) var(--space-8);
+  overflow: hidden;
+}
+
+.heroInner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  text-align: center;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/*
+ * La marque est un paragraphe et non un titre : le titre de premier niveau de cette page est
+ * « Bienvenue ! », dans la carte. Deux `h1` sur une même page brouilleraient la structure lue par
+ * un lecteur d'écran.
+ */
+.wordmark {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: var(--line-height-tight);
+  color: var(--hero-text);
+}
+
+.content {
+  /* La carte remonte sur le décor, qui est positionné : sans cela elle passerait dessous. */
+  position: relative;
+  z-index: 1;
+  margin-top: calc(var(--space-7) * -1);
+  padding: 0 var(--layout-gutter) var(--space-7);
+}
+
+.contentInner {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.subtitle {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.mfa {
+  margin-top: var(--space-6);
+}
+
+.registration {
+  margin-top: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.registrationLink {
+  display: inline-flex;
+  align-items: center;
+  /* Cible tactile conforme au minimum de 44 pixels de docs/screens.md. */
+  min-height: var(--target-min);
+  padding: var(--space-2);
+  color: var(--color-link);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.registrationLink:hover {
+  text-decoration: underline;
+}
+
+.terms {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-5);
+}
+
+.termsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-link);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.termsLink:hover {
+  text-decoration: underline;
+}
+
+@media (min-width: 48rem) {
+  .hero {
+    padding-block: var(--space-7) var(--space-10);
+  }
+
+  .brand {
+    gap: var(--space-5);
+  }
+}

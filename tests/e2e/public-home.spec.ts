@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+﻿import { expect, test } from '@playwright/test';
 
 /**
  * Accueil public (US-001 critère 16, docs/screens.md écran 1).
@@ -47,11 +47,13 @@ test.describe('accueil public', () => {
     const signIn = page.getByRole('link', { name: 'Se connecter' });
 
     await expect(signIn).toBeVisible();
-    await expect(signIn).toHaveAttribute('href', '/auth');
+    await expect(signIn).toHaveAttribute('href', '/connexion');
 
     await signIn.click();
-    await expect(page).toHaveURL(/\/auth$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Connexion');
+    await expect(page).toHaveURL(/\/connexion$/);
+    // Titre de la maquette, repris tel quel par US-010. Le lot 0 attendait « Connexion », libellé
+    // provisoire de la page d'attente qu'il servait alors.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Bienvenue !');
   });
 
   test("propose un accès aux conditions d'utilisation", async ({ page }) => {
@@ -66,7 +68,7 @@ test.describe('accueil public', () => {
   });
 
   test('garde la consigne de non-signalement sur les pages publiques', async ({ page }) => {
-    for (const path of ['/auth', '/terms']) {
+    for (const path of ['/connexion', '/terms']) {
       await page.goto(path);
       await expect(page.getByRole('region', { name: 'Consigne de sécurité' })).toContainText(
         EMERGENCY_NOTICE,
@@ -74,16 +76,16 @@ test.describe('accueil public', () => {
     }
   });
 
-  test("n'affiche ni formulaire de connexion ni promesse non tenue", async ({ page }) => {
-    // Le lot 0 ne livre pas l'authentification : aucun champ ne doit inviter à saisir un
-    // identifiant, sur l'accueil comme sur la page de connexion.
+  test("n'affiche aucun formulaire de connexion sur l'accueil lui-même", async ({ page }) => {
+    // L'accueil présente le service et oriente ; il ne collecte rien. La saisie d'un identifiant
+    // appartient à `/connexion`, écran dédié couvert par `auth-sign-in.spec.ts`.
+    //
+    // Ce test portait aussi, au lot 0, sur l'absence de formulaire à l'arrivée du parcours de
+    // connexion et sur la mention « Authentification pas encore disponible ». Les deux ont été
+    // légitimement invalidées par US-010, qui livre le formulaire réel : figer l'ancien état
+    // reviendrait à empêcher la livraison de la fonctionnalité que le lot 0 annonçait.
     await expect(page.locator('input')).toHaveCount(0);
     await expect(page.locator('form')).toHaveCount(0);
-
-    await page.goto('/auth');
-    await expect(page.locator('input')).toHaveCount(0);
-    await expect(page.locator('form')).toHaveCount(0);
-    await expect(page.getByText('Authentification pas encore disponible')).toBeVisible();
   });
 
   test('ne charge aucune ressource d origine tierce', async ({ page }) => {

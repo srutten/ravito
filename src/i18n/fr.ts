@@ -80,6 +80,116 @@ const ui = {
     terms: "Conditions d'utilisation",
     termsAriaLabel: "Consulter les conditions d'utilisation",
   },
+  /**
+   * Écran de connexion (docs/screens.md, écran 2 ; ADR-015 et ADR-016).
+   *
+   * Deux règles gouvernent ces libellés et aucune n'est négociable.
+   *
+   * 1. AUCUN LIBELLÉ NE DIT SI UN COMPTE EXISTE. « Si un compte correspond à cette adresse » est
+   *    écrit ainsi parce que le serveur répond exactement pareil dans les deux cas (critère 7) :
+   *    un texte affirmatif ferait mentir l'interface là où le serveur, lui, ne dit rien.
+   * 2. UN SEUL MESSAGE POUR LES QUATRE ÉCHECS DE CODE. Code inexistant, expiré, déjà consommé ou
+   *    erroné : `codeRejected` et rien d'autre. Distinguer ces cas dans l'interface rétablirait
+   *    côté navigateur l'oracle que le serveur refuse d'ouvrir.
+   */
+  signIn: {
+    pageTitle: 'Connexion',
+    pageDescription:
+      'Connectez-vous avec un code à usage unique envoyé sur votre adresse de courriel.',
+    welcomeTitle: 'Bienvenue !',
+    welcomeSubtitle: 'Connectez-vous pour accéder à la plateforme.',
+    formLabel: 'Formulaire de connexion',
+
+    identifierLabel: 'Adresse de courriel',
+    identifierPlaceholder: 'prenom.nom@exemple.fr',
+    identifierHint: "Aucun mot de passe n'est demandé : un code à usage unique vous est envoyé.",
+    requestCode: 'Recevoir un code',
+
+    codeStepTitle: 'Code envoyé',
+    codeStepBody:
+      "Si un compte correspond à cette adresse, un code à six chiffres vient d'y être envoyé. Il ne sert qu'une fois.",
+    codeLabel: 'Code à usage unique',
+    codeHint: 'Six chiffres, reçus par courriel.',
+    codeExpiresIn: 'Ce code expire dans',
+    codeExpired: 'Ce code a expiré. Demandez-en un nouveau.',
+    submitCode: 'Se connecter',
+    resendCode: 'Renvoyer un code',
+    resendAvailableIn: 'Nouveau code possible dans',
+    changeIdentifier: "Modifier l'adresse",
+
+    successTitle: 'Connexion réussie',
+    successBody: 'Redirection en cours...',
+
+    blockedTitle: 'Trop de tentatives',
+    blockedRetryIn: 'Nouvelle tentative possible dans',
+
+    failureTitle: 'Connexion refusée',
+    codeRejected:
+      "Ce code est incorrect ou n'est plus valable. Vérifiez votre saisie, ou demandez un nouveau code.",
+    accountUnavailable:
+      'Ce compte ne peut pas être utilisé pour se connecter. Contactez un administrateur de la plateforme.',
+
+    /**
+     * Encart de la maquette. Il ANNONCE le second facteur, il ne le fournit pas : la dernière
+     * phrase existe pour que l'écran n'ait pas l'air de promettre un parcours qui n'existe pas
+     * (docs/screens.md, écran 2 ; le second facteur est livré par US-011).
+     */
+    mfaTitle: 'Authentification renforcée pour les rôles sensibles',
+    mfaBody:
+      "Une authentification multifacteur peut être requise selon votre rôle et le contexte. Elle n'est pas encore active : aucune étape supplémentaire ne vous est demandée aujourd'hui.",
+
+    registrationQuestion: 'Nouveau sur Appui Feux ?',
+    registrationLink: 'Créer un compte',
+
+    scriptRequiredTitle: 'JavaScript est nécessaire pour se connecter',
+    scriptRequired:
+      'La connexion se fait en deux temps, depuis votre navigateur. Activez JavaScript pour ce site, puis rechargez la page.',
+
+    /**
+     * Motifs de refus de l'identifiant. Ils ne dépendent que de la FORME de la saisie et ne
+     * disent rien de l'existence d'un compte : l'écran peut donc les afficher sans ouvrir
+     * d'oracle (voir `IdentifierRejectionReason` dans le module d'identité).
+     */
+    identifierErrors: {
+      IDENTIFIER_REQUIRED: 'Saisissez votre adresse de courriel.',
+      IDENTIFIER_TOO_LONG: 'Cette adresse de courriel est trop longue.',
+      IDENTIFIER_NOT_ASCII:
+        'Cette adresse contient des caractères non pris en charge. Saisissez une adresse sans accent.',
+      PHONE_CHANNEL_UNAVAILABLE:
+        "L'envoi par SMS n'est pas encore disponible. Saisissez une adresse de courriel.",
+      IDENTIFIER_MALFORMED: "Cette adresse de courriel n'est pas valide.",
+    },
+    codeError: 'Saisissez les six chiffres du code reçu.',
+  },
+  /**
+   * Page d'attente après connexion (docs/api-contract.md, `redirectPath`).
+   *
+   * Elle dit l'état réel du compte et rien de plus. Les tableaux de bord par rôle relèvent des
+   * lots suivants : présenter ici un tableau de bord vide laisserait croire à une panne de
+   * chargement plutôt qu'à une fonctionnalité non livrée.
+   */
+  postSignIn: {
+    pageTitle: 'Vous êtes connecté',
+    description:
+      'Votre session est ouverte. Les espaces de travail par rôle ne sont pas encore ouverts dans cette version.',
+    accountTitle: 'Votre compte',
+    displayNameLabel: 'Nom affiché',
+    sessionTitle: 'Votre session',
+    issuedAtLabel: 'Ouverte le',
+    expiresAtLabel: 'Expire sans activité le',
+    absoluteExpiresAtLabel: 'Expire au plus tard le',
+    noticeTitle: 'Ce que cette version ne fournit pas encore',
+    notice:
+      "Les tableaux de bord par rôle, les organisations et l'authentification à deux facteurs arrivent dans les lots suivants. Aucune donnée opérationnelle n'est disponible pour le moment.",
+    actionsTitle: 'Fermer vos sessions',
+    signOut: 'Se déconnecter',
+    revokeAll: 'Déconnecter tous mes appareils',
+    revokeAllHint:
+      "À utiliser si vous pensez qu'une autre personne a accès à votre compte : toutes vos sessions sont fermées, y compris celle-ci.",
+    signedOutTitle: 'Déconnexion effectuée',
+    revokedTitle: 'Sessions fermées',
+    revokedBody: 'Toutes vos sessions ont été fermées. Reconnectez-vous pour continuer.',
+  },
   /** Page de santé technique (docs/observability.md). */
   health: {
     title: 'État du service',
