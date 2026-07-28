@@ -12,6 +12,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    // Node 24 exécute nativement TypeScript, mais sa résolution ESM exige l'extension explicite
+    // dans le spécificateur. Sans cette option, chaque import relatif des scripts exécutables
+    // (`scripts/db`, `scripts/ci`) devrait porter une suppression de diagnostic, ce qui reviendrait
+    // à désactiver le typage là où on prétend le renforcer. L'option est sans risque ici : le
+    // projet est en `noEmit`, aucune sortie JavaScript n'est produite.
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,

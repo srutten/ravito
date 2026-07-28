@@ -23,10 +23,11 @@
     "test:e2e": "playwright test",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/migrate.mjs",
-    "db:status": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/status.mjs",
-    "db:reset": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/reset.mjs",
-    "db:seed": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/seed.mjs",
+    "db:migrate": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/migrate.ts",
+    "db:status": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/status.ts",
+    "db:reset": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/reset.ts",
+    "db:seed": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/seed.ts",
+    "db:bootstrap-roles": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/db/bootstrap-roles.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
