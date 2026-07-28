@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------------------
+# Environnement de PRODUCTION — exemple de fichier de variables
+#
+# Copier en « terraform.tfvars », qui n'est JAMAIS commité (.gitignore exclut
+# déjà *.tfvars). Seul le présent fichier .example est versionné.
+#
+# ---------------------------------------------------------------------------
+# AUCUN SECRET DANS CE FICHIER, NI DANS SA COPIE
+# ---------------------------------------------------------------------------
+#
+# Ne doivent jamais figurer ici : clé d'API Scaleway, clé secrète Object
+# Storage, mot de passe PostgreSQL, AUTH_SECRET, clé de fournisseur de courriel
+# ou de SMS, clé SSH PRIVÉE.
+#
+# Les identifiants Scaleway sont lus dans l'environnement d'exécution :
+#
+#   export SCW_ACCESS_KEY=...
+#   export SCW_SECRET_KEY=...
+#   export AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY"      # backend d'état, API S3
+#   export AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY"
+#
+# Une clé PUBLIQUE SSH n'est pas un secret : elle peut figurer ici. Une clé
+# privée, jamais.
+#
+# Toutes les variables ci-dessous ont une valeur par défaut cohérente avec la
+# production. Ce fichier n'est utile que pour ce qui doit être décidé
+# nominativement : les accès d'administration.
+# ---------------------------------------------------------------------------
+
+# --- Accès administrateur ---------------------------------------------------
+
+# Clés publiques autorisées sur le compte d'administration. Sans au moins une
+# clé, la machine est créée sans aucun moyen d'y ouvrir une session.
+# ssh_authorized_keys = [
+#   "ssh-ed25519 AAAA...remplacer_par_la_cle_publique_reelle... prenom.nom@poste",
+# ]
+
+# Plages autorisées à joindre le port SSH. Vide par défaut : sans décision
+# explicite, aucun accès SSH n'est ouvert depuis l'Internet sur la machine qui
+# héberge la base et le journal d'audit.
+#
+# N'inscrire que des plages nominatives et stables. 0.0.0.0/0 est refusé par une
+# validation, en production comme ailleurs.
+# admin_ssh_cidrs = [
+#   "203.0.113.10/32",   # exemple de documentation (RFC 5737), à remplacer
+# ]
+
+# --- Dimensionnement --------------------------------------------------------
+
+# Valeurs par défaut : DEV1-L et 40 Go, soit environ 35,24 EUR/mois au tarif
+# relevé le 2026-07-27. Ne les changer qu'avec le coût en tête ; la sortie
+# « estimated_monthly_cost_eur » recalcule le plancher à chaque plan.
+# server_type            = "DEV1-L"
+# data_volume_size_in_gb = 40
+
+# --- Noms de domaine --------------------------------------------------------
+
+# Production servie à l'apex de appuifeux.fr. Les domaines secondaires pointent
+# ici pour être redirigés par le proxy TLS.
+# dns_zone              = "appuifeux.fr"
+# alternate_dns_zones   = ["appuifeux.eu", "firesupport.eu"]
+# redirect_record_names = [""]        # [""] = apex seul ; ["", "www"] ajoute www
+
+# --- Rétention --------------------------------------------------------------
+
+# backup_retention_days                       = 35
+# documents_noncurrent_version_retention_days = 30
+
+# --- Étiquetage -------------------------------------------------------------
+
+# Étiquettes de calcul : liste de chaînes. Étiquettes de seaux : dictionnaire.
+# Le typage diffère côté Scaleway, d'où deux variables distinctes.
+# additional_tags        = ["lot=0", "responsable=fondateur"]
+# additional_bucket_tags = { lot = "0", responsable = "fondateur" }

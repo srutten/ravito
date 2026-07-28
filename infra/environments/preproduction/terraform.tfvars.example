@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# Environnement de PRÉPRODUCTION — exemple de fichier de variables
+#
+# Copier en « terraform.tfvars », qui n'est JAMAIS commité (.gitignore exclut
+# déjà *.tfvars). Seul le présent fichier .example est versionné.
+#
+# ---------------------------------------------------------------------------
+# AUCUN SECRET DANS CE FICHIER, NI DANS SA COPIE
+# ---------------------------------------------------------------------------
+#
+# Ne doivent jamais figurer ici : clé d'API Scaleway, clé secrète Object
+# Storage, mot de passe PostgreSQL, AUTH_SECRET, clé de fournisseur de courriel
+# ou de SMS, clé SSH PRIVÉE.
+#
+# Les identifiants Scaleway sont lus dans l'environnement d'exécution :
+#
+#   export SCW_ACCESS_KEY=...
+#   export SCW_SECRET_KEY=...
+#   export AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY"      # backend d'état, API S3
+#   export AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY"
+#
+# Une clé PUBLIQUE SSH n'est pas un secret : elle peut figurer ici. Une clé
+# privée, jamais. La préproduction vit dans le MÊME projet Scaleway que la
+# production : un identifiant qui fuit ici ne reste pas ici.
+# ---------------------------------------------------------------------------
+
+# --- Accès administrateur ---------------------------------------------------
+
+# Clés publiques autorisées sur le compte d'administration. Sans au moins une
+# clé, la machine est créée sans aucun moyen d'y ouvrir une session.
+# ssh_authorized_keys = [
+#   "ssh-ed25519 AAAA...remplacer_par_la_cle_publique_reelle... prenom.nom@poste",
+# ]
+
+# Plages autorisées à joindre le port SSH. Vide par défaut. 0.0.0.0/0 est refusé
+# par une validation, en préproduction comme ailleurs.
+# admin_ssh_cidrs = [
+#   "203.0.113.10/32",   # exemple de documentation (RFC 5737), à remplacer
+# ]
+
+# --- Dimensionnement --------------------------------------------------------
+
+# Valeurs par défaut : DEV1-S et 20 Go, soit environ 8,54 EUR/mois au tarif
+# relevé le 2026-07-27. Une validation refuse tout type plus large que DEV1-M :
+# la préproduction n'a pas vocation à devenir une seconde production.
+# server_type            = "DEV1-S"
+# data_volume_size_in_gb = 20
+
+# --- Nom de domaine ---------------------------------------------------------
+
+# preprod.appuifeux.fr. La chaîne vide est refusée : elle désignerait l'apex,
+# c'est-à-dire la production.
+# dns_zone        = "appuifeux.fr"
+# dns_record_name = "preprod"
+
+# --- Rétention et démantèlement ---------------------------------------------
+
+# backup_retention_days                       = 7
+# documents_noncurrent_version_retention_days = 7
+
+# Passer à true UNIQUEMENT au moment de démonter l'environnement : les seaux
+# deviennent alors supprimables même remplis. À laisser à false le reste du
+# temps.
+# force_destroy = false
+
+# --- Étiquetage -------------------------------------------------------------
+
+# Étiquettes de calcul : liste de chaînes. Étiquettes de seaux : dictionnaire.
+# additional_tags        = ["lot=0"]
+# additional_bucket_tags = { lot = "0" }

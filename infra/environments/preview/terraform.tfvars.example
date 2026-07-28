@@ -1,0 +1,145 @@
+# ---------------------------------------------------------------------------
+# Environnement de PRÉVISUALISATION — exemple de fichier de variables
+#
+# Copier en « terraform.tfvars », qui n'est JAMAIS commité (.gitignore exclut
+# déjà *.tfvars). Seul le présent fichier .example est versionné.
+#
+# ---------------------------------------------------------------------------
+# AUCUN SECRET DANS CE FICHIER, NI DANS SA COPIE
+# ---------------------------------------------------------------------------
+#
+# Cet environnement a UN secret : le mot de passe du compte PostgreSQL de
+# prévisualisation. Il n'apparaît volontairement NULLE PART ci-dessous. Il se
+# fournit exclusivement par l'environnement du shell :
+#
+#   export TF_VAR_preview_database_password="$(...gestionnaire de secrets...)"
+#
+# Ne pas l'écrire dans terraform.tfvars, même « juste pour essayer » : un
+# fichier finit toujours par être copié, sauvegardé ou joint à un message.
+#
+# Les identifiants Scaleway sont eux aussi lus dans l'environnement :
+#
+#   export SCW_ACCESS_KEY=...
+#   export SCW_SECRET_KEY=...
+#   export AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY"      # backend d'état, API S3
+#   export AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY"
+#
+# Une clé PUBLIQUE SSH n'est pas un secret : elle peut figurer ici. Une clé
+# privée, jamais.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Prévisualisations ouvertes
+# ---------------------------------------------------------------------------
+#
+# Liste VIDE par défaut : appliquer sans rien déclarer crée le socle partagé
+# — réseau privé, hôte de base, espace de noms de conteneurs, seaux — et rien
+# d'autre.
+#
+# Une entrée = une pull request = un conteneur + un enregistrement DNS
+# pr-<numéro>.dev.appuifeux.fr + une liaison de nom personnalisé.
+# Retirer l'entrée détruit les trois.
+#
+# Terraform ne crée PAS la base logique de la pull request : le CREATE DATABASE
+# à l'ouverture et le DROP DATABASE à la fermeture relèvent de la chaîne de
+# déploiement, qui n'existe pas dans cette itération. Le nom attendu est donné
+# par la sortie « preview_database_names ».
+#
+# preview_environments = [
+#   {
+#     pull_request_number = 42
+#     # Adresse complète de l'image, désignée par l'empreinte du commit.
+#     # Aucune image n'existe aujourd'hui : ni Dockerfile, ni registre alimenté.
+#     image = "rg.fr-par.scw.cloud/appui-feux/web:0000000000000000000000000000000000000000"
+#     # Facultatif : force un redéploiement quand l'étiquette est mutable.
+#     # registry_sha256 = "sha256:...."
+#     # Facultatif : nom de base logique explicite. Calculé si absent, ici
+#     # « appui_feux_pr_42 ».
+#     # database_name = "appui_feux_pr_42"
+#     # 0 = mise à l'échelle jusqu'à zéro. C'est la valeur par défaut et la
+#     # raison d'être du choix serverless.
+#     # min_scale = 0
+#     # max_scale = 2
+#     # Variables NON SECRÈTES propres à cette prévisualisation.
+#     # environment_variables = { FEATURE_FLAGS_SOURCE = "static" }
+#   },
+# ]
+
+# ---------------------------------------------------------------------------
+# Conteneurs
+# ---------------------------------------------------------------------------
+
+# Le couple mémoire/vCPU n'est pas libre chez Scaleway : 1024 Mo va avec 560
+# milli-vCPU. Un couple incohérent est refusé par l'API.
+# container_port               = 3000
+# container_cpu_limit          = 560
+# container_memory_limit_bytes = 1073741824
+# container_max_scale          = 2
+
+# « public » : le lien de la pull request s'ouvre d'un clic. « private » exige un
+# jeton IAM à chaque requête, ce qui rend la relecture laborieuse. Le compromis
+# est acceptable parce que les données sont strictement fictives.
+# container_privacy = "public"
+
+# Variables NON SECRÈTES appliquées à toutes les prévisualisations.
+# container_environment_variables = { FEATURE_FLAGS_SOURCE = "static" }
+
+# ---------------------------------------------------------------------------
+# Base de prévisualisation partagée
+# ---------------------------------------------------------------------------
+#
+# Cette instance est facturée EN CONTINU, y compris quand aucune pull request
+# n'est ouverte : la mise à l'échelle à zéro annule le coût du calcul des
+# conteneurs, pas celui de la machine qui porte la base.
+#
+# database_server_type       = "DEV1-S"
+# database_volume_size_in_gb = 10
+
+# Identifiant du compte PostgreSQL, pas un secret. Le mot de passe correspondant
+# se fournit par TF_VAR_preview_database_password, jamais ici.
+# preview_database_user = "appui_preview"
+
+# Sous-réseau privé fixe, pour écrire le pg_hba.conf avant de connaître les
+# adresses réellement attribuées.
+# private_network_ipv4_subnet = "192.168.42.0/24"
+
+# ---------------------------------------------------------------------------
+# Accès administrateur à l'hôte de base
+# ---------------------------------------------------------------------------
+
+# ssh_authorized_keys = [
+#   "ssh-ed25519 AAAA...remplacer_par_la_cle_publique_reelle... prenom.nom@poste",
+# ]
+
+# Vide par défaut : cet hôte ne sert aucun service au public et n'a aucune raison
+# d'être joignable depuis l'Internet. 0.0.0.0/0 est refusé par une validation.
+# admin_ssh_cidrs = [
+#   "203.0.113.10/32",   # exemple de documentation (RFC 5737), à remplacer
+# ]
+
+# ---------------------------------------------------------------------------
+# Noms de domaine
+# ---------------------------------------------------------------------------
+
+# pr-<numéro>.dev.appuifeux.fr. Aucune zone « dev.appuifeux.fr » n'est créée.
+# dns_zone          = "appuifeux.fr"
+# preview_subdomain = "dev"
+# dns_ttl           = 300
+
+# ---------------------------------------------------------------------------
+# Stockage objet
+# ---------------------------------------------------------------------------
+
+# true par défaut ICI, et seulement ici : l'environnement est jetable. Un
+# « terraform destroy » supprimera les seaux même remplis.
+# force_destroy = true
+
+# backup_retention_days                       = 7
+# documents_noncurrent_version_retention_days = 7
+
+# ---------------------------------------------------------------------------
+# Étiquetage
+# ---------------------------------------------------------------------------
+
+# additional_tags        = ["lot=0"]
+# additional_bucket_tags = { lot = "0" }
