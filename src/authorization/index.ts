@@ -1,17 +1,36 @@
 /**
  * Surface publique de l'autorisation.
  *
- * `requireSession` est la barrière. Une route protégée l'appelle en premier, avant toute
- * lecture et avant toute écriture. Masquer un bouton n'est jamais un contrôle d'accès
- * (CLAUDE.md) : un appel direct à la route doit se heurter à cette fonction.
+ * DEUX BARRIÈRES, DANS CET ORDRE, ET AUCUNE NE REMPLACE L'AUTRE.
  *
- * Ce module ne porte AUCUNE vérification de rôle ni d'appartenance à une organisation, et
- * l'omission est délibérée : `OrganizationMember` n'existe pas au lot 1. Exposer un
- * `requireRole` qui renverrait toujours vrai serait pire que son absence — un contrôle
- * d'accès qui ne contrôle rien est un contrôle qu'on cesse de vérifier. Il arrive avec
- * US-012 et US-014.
+ * 1. `requireSession` — qui est l'appelant ? Une route protégée l'appelle en premier,
+ *    avant toute lecture et avant toute écriture. Masquer un bouton n'est jamais un
+ *    contrôle d'accès (CLAUDE.md) : un appel direct à la route doit se heurter à cette
+ *    fonction.
+ * 2. `resolveOrganizationAccess` et ses gardes — qu'est cet appelant DANS CETTE
+ *    organisation, à cet instant ? Une session valide ne dit rien du rôle : elle prouve
+ *    l'identité, pas l'habilitation.
+ *
+ * La seconde barrière est arrivée avec US-012. Elle solde le point ouvert laissé par
+ * US-010 : une adhésion suspendue ou expirée coupe désormais l'accès aux données de
+ * l'organisation dès la requête suivante, sans attendre l'expiration de la session
+ * (`docs/permissions.md`, « accès après suspension » ; supabase/README.md, « Ce qui rend un
+ * rôle effectif »).
+ *
+ * AUCUNE DES DEUX N'EST MISE EN CACHE (ADR-021, `docs/architecture.md`). Une autorisation
+ * cachée survit à sa propre révocation pendant la durée du cache, c'est-à-dire pendant la
+ * fenêtre exacte que la révocation existe pour fermer.
  */
 
+export type { OrganizationAccess } from '@/authorization/organization-access';
+export {
+  assertOrganizationActive,
+  assertOrganizationRole,
+  assertOrganizationVerified,
+  assertOrganizationVisible,
+  resolveOrganizationAccess,
+  toMembershipView,
+} from '@/authorization/organization-access';
 export type { GlobalRevocation, Session } from '@/authorization/session';
 export {
   getCurrentSession,

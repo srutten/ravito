@@ -179,8 +179,16 @@ const ui = {
     expiresAtLabel: 'Expire sans activité le',
     absoluteExpiresAtLabel: 'Expire au plus tard le',
     noticeTitle: 'Ce que cette version ne fournit pas encore',
+    /*
+     * Mis à jour au lot organisations : les organisations existent désormais et figurent
+     * ci-dessus. Laisser la phrase d'origine ferait de cet écran une interface qui ment sur ce
+     * qu'elle propose juste au-dessus.
+     */
     notice:
-      "Les tableaux de bord par rôle, les organisations et l'authentification à deux facteurs arrivent dans les lots suivants. Aucune donnée opérationnelle n'est disponible pour le moment.",
+      "Les tableaux de bord par rôle et l'authentification à deux facteurs arrivent dans les lots suivants. Aucune donnée opérationnelle n'est disponible pour le moment.",
+    workspacesTitle: 'Ce que vous pouvez faire',
+    workspacesDescription:
+      'Déclarez la structure au nom de laquelle vous interviendrez. Elle devra être validée avant de pouvoir publier ou proposer quoi que ce soit.',
     actionsTitle: 'Fermer vos sessions',
     signOut: 'Se déconnecter',
     revokeAll: 'Déconnecter tous mes appareils',
@@ -189,6 +197,266 @@ const ui = {
     signedOutTitle: 'Déconnexion effectuée',
     revokedTitle: 'Sessions fermées',
     revokedBody: 'Toutes vos sessions ont été fermées. Reconnectez-vous pour continuer.',
+  },
+  /**
+   * Coquille des écrans connectés (docs/screens.md).
+   *
+   * La navigation ne montre que ce qui existe. Un lien vers un tableau de bord non livré
+   * ferait de la coquille une promesse, et l'écran d'arrivée un échec.
+   */
+  appShell: {
+    navigationLabel: 'Navigation principale',
+    account: 'Mon compte',
+    newOrganization: 'Créer une organisation',
+    pendingOrganizations: 'Organisations en attente',
+    adminSectionLabel: 'Administration de la plateforme',
+  },
+  /**
+   * Vocabulaire fermé des organisations (docs/api-contract.md, section Vocabulaire).
+   *
+   * TROIS AXES DISTINCTS, À NE JAMAIS CONFONDRE DANS UN LIBELLÉ : la NATURE de la structure
+   * (`type`), la DÉCISION DE CONFIANCE d'un administrateur plateforme (`verificationStatus`)
+   * et le CYCLE DE VIE de la fiche (`status`). Une organisation peut être validée et
+   * suspendue, ou en attente et active : un libellé qui mêlerait deux axes rendrait
+   * indécidable lequel fait foi.
+   *
+   * AUCUN DE CES ENSEMBLES N'EST ORDONNÉ. `OBSERVER` est déclaré en dernier et reste le rôle
+   * le moins capable ; `REJECTED` n'est pas « plus vérifié » que `VERIFIED`.
+   */
+  organizations: {
+    /** Libellés courts, pour l'affichage d'une fiche ou d'une ligne de file. */
+    types: {
+      OPERATIONAL_SERVICE: 'Service opérationnel',
+      LOCAL_AUTHORITY: 'Collectivité',
+      COMPANY: 'Entreprise',
+      ASSOCIATION: 'Association',
+      FARM: 'Exploitation agricole',
+    },
+    /**
+     * Libellés de choix, plus longs que les précédents et volontairement.
+     *
+     * docs/screens.md, écran 11 : « les libellés affichés disent l'étendue réelle de chaque
+     * valeur plutôt que de reprendre le cas le plus fréquent ». Une personne qui déclare un
+     * service technique municipal doit voir qu'il entre dans « service opérationnel », sans
+     * quoi elle le classera en « collectivité » et l'administrateur validera une nature
+     * fausse.
+     */
+    typeChoices: {
+      OPERATIONAL_SERVICE: 'Service opérationnel : incendie, technique, sécurité civile',
+      LOCAL_AUTHORITY: 'Collectivité : commune, groupement, département, région',
+      COMPANY: 'Entreprise',
+      ASSOCIATION: 'Association',
+      FARM: 'Exploitation agricole',
+    },
+    verificationStatuses: {
+      PENDING: 'En attente de validation',
+      VERIFIED: 'Validée',
+      REJECTED: 'Refusée',
+    },
+    statuses: {
+      ACTIVE: 'Active',
+      SUSPENDED: 'Suspendue',
+      CLOSED: 'Fermée',
+    },
+    roles: {
+      CONTRIBUTOR: 'Contributeur',
+      COORDINATOR: 'Coordinateur',
+      ORG_ADMIN: "Administrateur de l'organisation",
+      PLATFORM_ADMIN: 'Administrateur de la plateforme',
+      OBSERVER: 'Observateur',
+    },
+    memberStatuses: {
+      INVITED: 'Invitation en attente',
+      ACTIVE: 'Active',
+      SUSPENDED: 'Suspendue',
+      REVOKED: 'Révoquée',
+    },
+    /** Champs communs à la fiche, au formulaire et à la file. */
+    nameLabel: 'Nom de la structure',
+    typeLabel: 'Type de structure',
+    registrationNumberLabel: "Numéro d'immatriculation",
+    territoryCodeLabel: 'Périmètre territorial',
+    verificationStatusLabel: 'Validation',
+    statusLabel: 'État de la fiche',
+    versionLabel: 'Version de la fiche',
+    createdAtLabel: 'Déclarée le',
+    updatedAtLabel: 'Modifiée le',
+    /** L'absence de périmètre est une information, pas une case vide (docs/screens.md). */
+    noTerritory: 'Aucun périmètre déclaré',
+  },
+  /**
+   * Création d'une organisation (docs/screens.md, écran 11).
+   *
+   * DEUX RÈGLES GOUVERNENT CES LIBELLÉS.
+   *
+   * 1. L'ÉCRAN NE PROMET RIEN QU'IL NE TIENNE. Aucun délai de traitement n'est annoncé :
+   *    aucune règle du produit n'en garantit un, et un délai annoncé puis dépassé est pire
+   *    qu'une absence de délai.
+   * 2. LE REFUS D'UN NUMÉRO NE NOMME JAMAIS LA STRUCTURE QUI LE DÉTIENT. Le serveur répond
+   *    `VALIDATION_ERROR` sur le même champ pour une forme invalide et pour un doublon : le
+   *    message couvre donc les deux sans distinguer, faute de quoi l'écran rétablirait
+   *    l'oracle d'énumération que le serveur refuse d'ouvrir.
+   */
+  createOrganization: {
+    pageTitle: 'Créer une organisation',
+    pageDescription:
+      'Déclarez la structure au nom de laquelle vous interviendrez. Elle devra être validée par un administrateur de la plateforme avant de pouvoir publier ou proposer quoi que ce soit.',
+    formLabel: "Formulaire de création d'organisation",
+
+    namePlaceholder: 'Exploitation agricole Martin',
+    nameHint:
+      'De 2 à 160 caractères. Deux structures distinctes peuvent porter le même nom : rien ne vous est refusé de ce fait.',
+
+    typePlaceholder: 'Choisissez un type de structure',
+    typeHint:
+      "Aucun type n'est présélectionné : retenez celui qui décrit la nature de la structure, pas son activité du moment.",
+
+    registrationNumberPlaceholder: 'FICTIF-ORG-0005',
+    registrationNumberHint:
+      "Obligatoire : c'est ce qu'un administrateur de la plateforme confronte à un registre public pour valider votre organisation. De 4 à 64 caractères. Les séparateurs que vous saisissez sont conservés à l'affichage.",
+
+    territoryCodeHint:
+      "Facultatif : majuscules, chiffres et tirets, 16 caractères au plus, par exemple 2A ou ZZ-DEMO-01. Laissez ce champ vide si la structure n'a pas de périmètre territorial.",
+    territoryCodePlaceholder: 'ZZ-DEMO-01',
+
+    submit: "Créer l'organisation",
+    submitBusy: 'Création en cours...',
+
+    notAskedTitle: 'Ce que ce formulaire ne demande pas',
+    notAsked:
+      "Ni votre rôle, ni l'état de validation, ni de pièce justificative. Vous devenez administrateur de l'organisation que vous créez, et son état de validation est posé par la plateforme, jamais par le formulaire.",
+
+    successTitle: 'Organisation créée, en attente de validation',
+    successBody: 'Ouverture de la fiche...',
+
+    failureTitle: 'Création refusée',
+
+    /**
+     * Messages rattachés aux champs. Chacun dit ce qu'il faut corriger, jamais pourquoi le
+     * serveur a refusé ni ce qu'il connaît par ailleurs.
+     */
+    fieldErrors: {
+      name: 'Saisissez un nom de 2 à 160 caractères, sans espace au début ni à la fin.',
+      type: 'Choisissez un type de structure dans la liste.',
+      registrationNumber:
+        "Ce numéro d'immatriculation est refusé : vérifiez sa forme, ou saisissez-en un autre s'il est déjà enregistré. Lettres, chiffres, espace, point, barre oblique et tiret, en commençant et en finissant par une lettre ou un chiffre.",
+      territoryCode:
+        'Code territorial invalide : majuscules, chiffres et tirets, 16 caractères au plus, en commençant par une lettre ou un chiffre.',
+      clientEventId:
+        "Cette demande n'a pas pu être identifiée. Rechargez la page, puis recommencez.",
+      root: 'Les informations envoyées sont incomplètes ou invalides. Vérifiez chaque champ.',
+    },
+  },
+  /**
+   * Fiche d'une organisation.
+   *
+   * L'ÉTAT « EN ATTENTE » EST AFFICHÉ ET EXPLICITE, et c'est un critère de SÉCURITÉ, pas de
+   * confort : une personne qui vient de créer son organisation ne doit pas croire que cette
+   * création lui a ouvert des droits. La fiche distingue donc ce qui est déjà possible de ce
+   * qui ne l'est pas encore, en toutes lettres, plutôt que par une pastille de couleur.
+   */
+  organizationDetail: {
+    eyebrow: 'Organisation',
+    identityTitle: 'Identité déclarée',
+    stateTitle: 'État',
+    membershipTitle: 'Votre rôle dans cette organisation',
+    membershipRoleLabel: 'Rôle',
+    membershipStatusLabel: 'Statut de votre adhésion',
+    membershipValidFromLabel: 'Depuis le',
+    membershipValidUntilLabel: "Jusqu'au",
+    membershipNone:
+      "Vous n'êtes pas membre de cette organisation. Vous la consultez au titre de votre fonction d'administrateur de la plateforme.",
+
+    pendingTitle: 'Organisation en attente de validation',
+    pendingBody:
+      "Cette organisation existe et vous pouvez la corriger, mais elle n'est pas encore validée. Un administrateur de la plateforme doit confronter son numéro d'immatriculation à un registre public.",
+    pendingAllowedTitle: 'Ce que vous pouvez déjà faire',
+    pendingAllowed: ['Compléter et corriger cette fiche.'],
+    pendingBlockedTitle: "Ce qui reste fermé tant que la validation n'a pas eu lieu",
+    pendingBlocked: [
+      'Publier une demande de moyens au nom de cette organisation.',
+      'Proposer une ressource au nom de cette organisation.',
+    ],
+
+    rejectedTitle: 'Organisation refusée',
+    rejectedBody:
+      "Un administrateur de la plateforme a refusé cette déclaration. Corriger la fiche la replace en attente de validation ; il n'y a rien d'autre à faire depuis cet écran.",
+
+    suspendedTitle: 'Fiche suspendue',
+    suspendedBody:
+      'Cette organisation est suspendue : sa fiche ne peut plus être modifiée. Contactez un administrateur de la plateforme.',
+    closedTitle: 'Fiche fermée',
+    closedBody: 'Cette organisation est fermée. Sa fiche est conservée en lecture seule.',
+
+    verifiedTitle: 'Organisation validée',
+    verifiedBody:
+      "Cette organisation a été validée par un administrateur de la plateforme. Modifier son nom, son type ou son numéro d'immatriculation la replacerait en attente de validation.",
+
+    editTitle: 'Modifier la fiche',
+    editDescription:
+      "Modifier le nom, le type ou le numéro d'immatriculation d'une organisation validée annule sa validation et la replace dans la file d'attente. Le périmètre territorial, lui, se corrige sans conséquence.",
+    editFormLabel: "Formulaire de modification de l'organisation",
+    editSubmit: 'Enregistrer les modifications',
+    editSubmitBusy: 'Enregistrement en cours...',
+    editNoChange: "Modifiez au moins un champ avant d'enregistrer.",
+    editSuccessTitle: 'Modifications enregistrées',
+    editSuccessBody: 'La fiche affiche désormais son état à jour.',
+    editVerificationResetTitle: 'Validation annulée',
+    editVerificationResetBody:
+      "Un champ d'identité a changé : cette organisation retourne en attente de validation.",
+    editForbidden:
+      'Seul un administrateur de cette organisation peut modifier sa fiche. Vous pouvez la consulter.',
+    versionConflictTitle: 'Fiche modifiée entre-temps',
+    versionConflictBody:
+      "Une autre personne a modifié cette fiche depuis son affichage. L'état réel est rechargé ci-dessus : vérifiez-le, puis recommencez votre modification.",
+    reload: 'Recharger la fiche',
+  },
+  /**
+   * File des organisations en attente (docs/screens.md, écran 10).
+   *
+   * LA FILE NE SE RAFRAÎCHIT PAS D'ELLE-MÊME. `ENABLE_REALTIME` vaut faux et aucun canal
+   * temps réel n'est livré : l'écran affiche l'heure du dernier chargement et propose un
+   * rafraîchissement manuel, plutôt qu'un indicateur de fraîcheur qu'aucun code ne mesure.
+   */
+  pendingOrganizations: {
+    pageTitle: 'Organisations en attente',
+    pageDescription:
+      'File de validation des organisations déclarées, de la plus ancienne à la plus récente. Réservée aux administrateurs de la plateforme.',
+    eyebrow: 'Administration',
+    listLabel: 'Organisations en attente de validation',
+
+    countOne: 'organisation en attente',
+    countMany: 'organisations en attente',
+
+    refresh: 'Rafraîchir la file',
+    lastLoadedAt: 'Dernier chargement',
+    lastLoadedUnknown: 'Aucun chargement abouti',
+
+    emptyTitle: 'Aucune organisation en attente.',
+    emptyDescription:
+      "Toutes les organisations déclarées ont été traitées. Cet écran ne signale rien d'anormal.",
+
+    submittedAtLabel: 'Déposée le',
+    waitingSinceLabel: 'En attente depuis',
+    requestedByLabel: 'Demandée par',
+    requestedByUnknown: 'Demandeur non renseigné',
+
+    loadMore: 'Afficher les organisations suivantes',
+
+    staleTitle: 'Liste datée',
+    staleBody:
+      "Cette liste date de son dernier chargement abouti et n'est peut-être plus à jour. Rafraîchissez-la dès que la connexion revient.",
+
+    noDecisionTitle: 'La validation arrive dans une version ultérieure',
+    noDecisionBody:
+      "Valider ou refuser une organisation n'est pas encore possible. Cette file rend visible ce qui attend, plutôt que de le laisser invisible.",
+
+    /** Ancienneté écrite en toutes lettres, jamais par une pastille de couleur. */
+    ageLessThanHour: "moins d'une heure",
+    ageHourOne: '1 heure',
+    ageHourMany: 'heures',
+    ageDayOne: '1 jour',
+    ageDayMany: 'jours',
   },
   /** Page de santé technique (docs/observability.md). */
   health: {

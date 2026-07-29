@@ -1,0 +1,10 @@
+/*
+ * Une seule colonne, mobile d'abord (docs/screens.md, écran 11) : quatre champs ne justifient
+ * pas un assistant, et une grille à deux colonnes obligerait à revenir en arrière du regard
+ * entre le libellé et le message d'erreur qui lui est rattaché.
+ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}

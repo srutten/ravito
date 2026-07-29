@@ -110,7 +110,7 @@ Procédure reproductible, à exécuter depuis la racine du dépôt (`fire-suppor
 | `npm run test:watch` | Exécute les tests unitaires en mode surveillance. |
 | `npm run test:coverage` | Exécute les tests unitaires avec la couverture. |
 | `npm run test:integration` | Exécute les tests d'intégration (projet Vitest `integration`, dossier `tests/integration`). Nécessite une base démarrée et migrée. |
-| `npm run test:e2e` | Exécute les tests end-to-end Playwright (dossier `tests/e2e`), en profil mobile et bureau. |
+| `npm run test:e2e` | Construit l'artefact de production puis exécute les tests de bout en bout Playwright (dossier `tests/e2e`), en profil mobile et bureau. Le port 3000 doit être libre : voir « Portes de qualité ». |
 | `npm run db:up` | Démarre le conteneur PostgreSQL avec PostGIS. |
 | `npm run db:down` | Arrête le conteneur et libère le port. |
 | `npm run db:migrate` | Applique les migrations. Livrée par US-002. |
@@ -127,10 +127,21 @@ Un changement n'est proposé à la revue que si ces portes passent en local, dan
 2. `npm run typecheck` : TypeScript strict, avec `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` et `verbatimModuleSyntax`.
 3. `npm run test` : tests unitaires. Ils ne nécessitent ni base ni réseau.
 4. `npm run test:integration` : tests d'intégration. Ils exigent une base démarrée par `npm run db:up` et migrée par `npm run db:migrate` ; les fichiers ne sont pas parallélisés entre eux car ils partagent la même base.
-5. `npm run test:e2e` : tests end-to-end. Ils s'exécutent sur le bundle de production, donc `npm run build` doit avoir été lancé avant ; Playwright démarre lui-même `npm run start` sur l'URL de `E2E_BASE_URL`.
+5. `npm run test:e2e` : tests de bout en bout. La commande construit elle-même l'artefact de production, puis lance Playwright. Quatre des sept fichiers montent leur propre serveur sur un port libre — `accessibility`, `auth-sign-in`, `organizations`, `organizations-administration` ; les trois autres — `public-home`, `auth-entry-point`, `security-headers` — passent par le serveur commun, que Playwright démarre avec `npm run start` sur l'URL de `E2E_BASE_URL`, par défaut `http://localhost:3000`. Ce port doit être libre, ou servir l'artefact qui vient d'être construit : voir ci-dessous.
 6. `npm run build` : construction de production. Une erreur de type ou d'import échoue ici même si le développement fonctionnait.
 
 `npm run verify` enchaîne les portes 1, 2, 3 et 6. Les portes 4 et 5 restent explicites, car elles dépendent d'une infrastructure locale.
+
+#### Libérer le port 3000 avant la porte 5
+
+La porte 5 est rouge tant qu'un service étranger occupe le port 3000, et l'échec ne désigne alors aucun défaut du code.
+
+- En local, Playwright réutilise le serveur déjà présent sur ce port (`reuseExistingServer`) : les trois fichiers qui en dépendent sont joués contre cette application-là, quelle qu'elle soit. Les échecs ressemblent à des régressions et n'en sont pas.
+- En intégration continue, la réutilisation est refusée : Playwright s'arrête sur « `http://localhost:3000` is already used » et pas un test ne s'exécute.
+
+Marche à suivre : identifier ce qui tient le port, puis le libérer avant de lancer la porte. Sous Windows PowerShell, `Get-NetTCPConnection -LocalPort 3000` donne le processus ; si c'est un conteneur, `docker ps` le nomme et `docker stop <nom>` le libère. `npm run db:down` n'arrête que la base de données, jamais un conteneur applicatif.
+
+Quand le port ne peut pas être libéré, seuls les quatre fichiers autonomes sont exécutables, car ils n'emploient jamais ce port : les désigner suffit, la configuration renonce alors d'elle-même au serveur commun — par exemple `npx playwright test tests/e2e/organizations.spec.ts`, ou `npm run test:e2e:organizations` qui reconstruit d'abord l'artefact. `E2E_SHARED_SERVER` tranche quand la déduction ne suffit pas : `off` sur un poste dont le port est tenu par autre chose, `on` pour un appel dont les filtres ne se laissent pas lire, par exemple un filtre par nom de test. La porte n'est pas complète pour autant : les trois autres fichiers, dont celui des en-têtes de sécurité, restent non joués.
 
 ### Avertissement de sécurité
 

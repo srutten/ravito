@@ -1,0 +1,89 @@
+/*
+ * Liste déroulante. Les valeurs reprennent `text-field.module.css` afin que les deux contrôles
+ * s'alignent exactement dans une même colonne de formulaire.
+ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Décorative : elle ne doit jamais intercepter un appui, la cible tactile est déjà limitée. */
+.icon {
+  position: absolute;
+  left: var(--space-4);
+  display: flex;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.chevron {
+  position: absolute;
+  right: var(--space-4);
+  display: flex;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.select {
+  width: 100%;
+  min-height: var(--control-height);
+  /* Réserve à droite pour le chevron, sinon le libellé le plus long passe dessous. */
+  padding: var(--space-3) var(--space-8) var(--space-3) var(--space-4);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  /*
+   * L'habillage natif est retiré pour que le contrôle ressemble au champ de texte voisin. Le
+   * comportement, lui, reste entièrement natif : ouverture, clavier, annonce.
+   */
+  appearance: none;
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+
+.withIcon {
+  padding-left: calc(var(--space-4) * 2 + 1.5rem);
+}
+
+.select:disabled {
+  background-color: var(--color-surface-subtle);
+  cursor: not-allowed;
+  /* L'état désactivé reste lisible : il informe, il ne s'efface pas. */
+  opacity: 0.7;
+}
+
+/*
+ * L'état invalide n'est pas porté par la seule bordure : le message textuel et `aria-invalid`
+ * le portent aussi (docs/screens.md, pas d'information uniquement portée par la couleur).
+ */
+.invalid {
+  border-color: var(--color-danger-solid);
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  color: var(--color-danger-text);
+}

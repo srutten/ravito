@@ -13,8 +13,14 @@ Champs principaux :
 - `territoryCode`
 - `verificationStatus`
 - `status`
+- `version`
 - `createdAt`
 - `updatedAt`
+
+`version` porte le verrouillage optimiste (ADR-019). Son absence de ce document était un oubli et
+non une exception : la règle générale « version positive pour verrouillage optimiste » ci-dessous
+s'applique, `0015_organizations.sql` porte la colonne et `docs/api-contract.md` exige un
+`expectedVersion` sur la modification d'une organisation.
 
 ## UserProfile
 
@@ -28,6 +34,10 @@ Champs principaux :
 - `status`
 
 ## OrganizationMember
+
+Portée par la table `organization_members` (`0016_organization-members.sql`). L'entité n'a pas
+d'identifiant propre : sa clé est le couple organisation et utilisateur, donc une personne détient
+au plus un rôle par organisation. L'absence d'`id` ci-dessous est voulue.
 
 - `organizationId`
 - `userId`
@@ -186,6 +196,30 @@ Champs principaux :
 - `ipHash`
 - `userAgentSummary`
 - `occurredAt`
+
+## IdempotencyKey
+
+Registre technique, et non entité métier : il porte l'unicité des commandes, pas un objet du
+domaine. Il est cité ici parce qu'aucun autre document du modèle ne le fait, et qu'une table dont
+dépend l'invariant « une même commande ne produit jamais deux effets » ne peut rester invisible.
+Table `idempotency_keys` (`0017_idempotency-keys.sql`), lue et écrite dans la transaction de la
+mutation qu'elle protège.
+
+- `id`
+- `clientEventId`
+- `operation`
+- `actorUserId`
+- `requestFingerprint`
+- `targetType`
+- `targetId`
+- `result`
+- `createdAt`
+- `updatedAt`
+
+Le corps de la requête n'est jamais conservé : seule son empreinte l'est, ce qui suffit à
+distinguer une reprise légitime d'une clé réutilisée pour une autre intention, sans faire du
+registre un second stockage des données de la commande. `result` ne porte que des identifiants et
+une version, jamais la réponse rendue à l'appelant.
 
 ## Contraintes SQL importantes
 

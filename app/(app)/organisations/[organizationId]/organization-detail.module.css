@@ -1,0 +1,55 @@
+/* Fiche d'une organisation et son formulaire de modification. Une seule colonne, mobile d'abord. */
+
+.definitions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+/*
+ * Libellé au-dessus de la valeur plutôt qu'à côté : sur un téléphone étroit, deux colonnes
+ * forceraient à couper les valeurs longues, dont le numéro d'immatriculation, qui doit rester
+ * lisible d'un seul tenant pour être comparé à un registre.
+ */
+.definitionRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.term {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.value {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  /* Un numéro d'immatriculation long ne doit pas élargir la carte au-delà de l'écran. */
+  overflow-wrap: anywhere;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.noticeSubtitle {
+  margin-top: var(--space-3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mutedText {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-text-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}

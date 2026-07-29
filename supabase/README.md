@@ -54,9 +54,13 @@ supabase/migrations/NNNN_nom-en-kebab-case.down.sql   retour arrière, facultati
    naïvement appliquerait les retours arrière comme des migrations, dans
    l'ordre alphabétique, juste après la migration correspondante. Les fichiers
    de retour doivent être exclus de la liste des migrations à appliquer.
-2. **Un fichier ne se découpe pas sur les points-virgules.** Les migrations
-   contiennent des blocs `DO $$ ... $$` et des corps de fonctions qui incluent
-   leurs propres `;`. Le fichier doit être envoyé au serveur d'un seul tenant.
+2. **Un fichier ne se découpe pas naïvement sur les points-virgules.** Les
+   migrations contiennent des blocs `DO $$ ... $$` et des corps de fonctions qui
+   incluent leurs propres `;`. Le moteur du dépôt envoie donc chaque fichier au
+   serveur d'un seul tenant. `psql`, lui, découpe — mais il traverse
+   correctement commentaires, chaînes et blocs entre signes dollar ; ce qu'il ne
+   fait pas, c'est envoyer le tout dans une seule transaction, et c'est un point
+   qui compte pour les retours arrière (voir plus bas).
 
 ---
 
@@ -86,6 +90,190 @@ Garanties attendues du moteur :
   dépôt. Le second cas signale une base plus avancée que le code — typiquement
   un retour arrière du code sans retour arrière du schéma.
 
+L'empreinte n'est calculée que sur les migrations. Les `*.down.sql` en sont
+**exclus** (`scripts/db/lib/migration-runner.ts`, `listMigrationFiles`) : la règle
+d'immuabilité ne les couvre pas, et ils restent donc corrigibles après fusion.
+
+---
+
+## Dérouler un retour arrière
+
+Un `.down.sql` défait ses objets **et retire sa propre ligne de
+`public.schema_migrations` dans le même geste indivisible, et seulement s'ils ont
+réellement disparu**. Les deux gestes vont ensemble : le moteur ne connaît l'état
+du schéma que par cette table, et un écart dans un sens comme dans l'autre lui
+fait décrire une base qui n'existe pas.
+
+**Ce que ce comportement empêche.** Tant que la ligne survivait à la suppression
+des objets, le retour arrière était une **porte à sens unique** : les tables
+avaient disparu, `npm run db:status` affichait « La base est à jour »,
+`npm run db:migrate` ne faisait rien, et l'outil de diagnostic officiel affirmait
+le contraire de la réalité. Il fallait alors un `DELETE` tapé à la main sur la
+table de suivi — c'est-à-dire deviner un mécanisme qu'aucun fichier ne décrivait,
+au pire moment pour le faire.
+
+**Le défaut symétrique, qu'il ne faut pas fabriquer en corrigeant celui-là.**
+Retirer la ligne *inconditionnellement* démonte l'autre versant : un retour
+arrière **refusé** — ordre inverse non respecté, dépendance encore en place —
+laisse les objets intacts et perd quand même sa ligne. `db:status` annonce alors
+« En attente » une migration dont le schéma est complet, et la réparation ne tient
+plus qu'à l'idempotence du fichier, que rien ne garantit. Les deux versants
+doivent être fermés ensemble.
+
+**Le troisième versant, celui qu'on fabrique en fermant les deux premiers.**
+Conditionner le retrait ne suffit pas quand un fichier défait **plusieurs**
+objets : `0004` (quatre types), `0009` (deux), `0014` (cinq). Découpé en un
+`DROP` par énoncé, le fichier laisse `psql -f` poursuivre après un refus — les
+objets encore libres partent **réellement**, le contrôle final voit le reliquat,
+refuse, et **conserve** la ligne. Elle ment alors dans l'autre sens : elle
+affirme la migration appliquée sur un schéma amputé. C'est le pire des trois
+états, parce que c'est **le seul qui ne se répare pas** — `db:status` annonce
+« Aucune anomalie », `db:migrate` n'a rien à réappliquer tant que la ligne est
+là, et `db:reset`, c'est-à-dire la destruction totale, devient le seul recours.
+Le deuxième versant, lui, était transitoire et auto-réparable : un retrait
+inconditionnel laissait `db:migrate` tout remonter. Fermer les deux premiers
+versants sans celui-ci revient donc à échanger un défaut réparable contre un
+défaut coinçant.
+
+Mesuré sur bases jetables, dans les deux sens :
+
+- `0004.down` **sur une base à jour, sans rien dérouler d'autre** — le geste le
+  plus banal. `mission_status`, premier de la liste, est porté par
+  `idempotency_witness.status` (`0007`) : il est refusé, puis `offer_status`,
+  `resource_status` et `operational_request_status` **disparaissent**. Ligne
+  `0004` conservée, et `db:status` rend « en attente : aucune, dérives : 0,
+  manquantes : 0 » sur un schéma amputé de trois types ;
+- `0014.down` joué après `0017` et `0016` : `organization_member_status` et
+  `organization_member_role` **détruits**, ligne `0014` conservée, puis
+  `db:migrate` en `42704`, `type "public.organization_member_role" does not
+  exist`.
+
+**Ce qui le ferme : l'atomicité, pas l'ordre.** Les suppressions sont dans le
+**même bloc `DO`** que le contrôle et le retrait, dans les trois fichiers
+multi-objets comme dans `0005` pour sa table. Un refus annule le bloc entier :
+rien n'est détruit, la ligne reste, et elle dit enfin vrai. Les trois versants
+sont fermés ensemble, et aucun ne l'est par la façon d'invoquer le fichier.
+
+**Ne recopiez pas « le montage de `0005` » sans regarder lequel.** `0005` compte
+**deux** blocs : contrôle et `DROP TABLE` dans le premier, contrôle et retrait de
+la ligne dans le second. Cette forme conditionnelle suffit à un fichier qui défait
+un seul objet. Reportée telle quelle sur un fichier qui en défait plusieurs, elle
+laisse un refus au milieu de la liste détruire les suivants — c'est exactement la
+régression décrite plus haut. Un fichier multi-objets exige le bloc **unique**.
+
+Quatre propriétés de ce retrait, qui ne sont pas des détails.
+
+- **Il est CONDITIONNÉ à la disparition réelle des objets, vérifiée dans le même
+  bloc que lui.** Sa position en fin de fichier n'y suffit pas, et croire le
+  contraire est l'erreur exacte que ce paragraphe corrige : `psql -f` découpe le
+  fichier et envoie **chaque énoncé séparément, en autocommit**, et sans
+  `-v ON_ERROR_STOP=1` il **poursuit** après un refus. La ligne d'un retour
+  arrière refusé partait donc quand même. Chaque `.down.sql` teste désormais
+  `to_regclass` / `to_regtype` / `to_regprocedure` sur ses propres objets et lève
+  `object_not_in_prerequisite_state` (`55000`) s'il en reste un. La propriété
+  tient du **fichier**, jamais de la façon de l'invoquer.
+- **Il est ATOMIQUE avec les suppressions qu'il valide**, dans le même bloc `DO`
+  qu'elles. C'est ce que le paragraphe ci-dessus établit, et c'est indispensable
+  dès qu'un fichier défait plus d'un objet : sans cela, le contrôle constate un
+  dégât qu'il ne peut plus annuler, et le refuser ne fait que figer la base dans
+  cet état. Un fichier à objet unique n'a pas besoin de ce montage — un `DROP`
+  unique passe ou ne passe pas — mais `0005` l'emploie quand même, parce que son
+  garde-fou compte des messages avant de supprimer la table.
+- **L'atomicité du FICHIER ENTIER, elle, n'est pas héritée : elle vient de
+  `--single-transaction`.** Le bloc `DO` rend indivisible ce qu'il contient, pas
+  la suite des blocs d'un fichier qui en compte plusieurs. Un fichier envoyé d'un
+  seul tenant — ce que fait le moteur du dépôt, pas `psql -f` — est exécuté dans
+  une transaction implicite. Avec `psql`, sans cette option, un `Ctrl-C`, un
+  délai de garde ou une coupure entre deux blocs laisse un demi-état. L'option de
+  la commande ci-dessous n'est donc pas un confort : elle **fait partie de la
+  procédure**, au même titre que `-v ON_ERROR_STOP=1`.
+- **Il est tolérant.** Il est gardé par un test d'existence de la table de suivi :
+  un retour arrière joué sur une base montée à la main, hors moteur, n'échoue
+  pas — il n'y a simplement rien à retirer.
+
+### Procédure
+
+Sauvegarde vérifiée d'abord (`docs/operations.md`) : un retour arrière de schéma
+détruit des données, et la structure seule est réversible.
+
+Le dépôt ne fournit **aucune commande de retour arrière**. Chaque fichier se joue
+à la main, un par un, ce qui oblige à constater le résultat de chacun avant de
+passer au suivant.
+
+1. Dérouler dans l'ordre **strictement inverse** des numéros, en s'arrêtant au
+   premier refus :
+
+```bash
+psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 --single-transaction -q \
+  -f supabase/migrations/0017_idempotency-keys.down.sql
+```
+
+**Les deux options sont des conditions de correction, pas des raffinements.**
+`-v ON_ERROR_STOP=1` arrête au premier refus, sans quoi `psql` enchaîne les
+énoncés suivants sur un état qu'il vient d'échouer à produire, et n'affiche le
+problème qu'au milieu d'un flot d'erreurs en cascade. `--single-transaction`
+donne au fichier l'atomicité que son découpage lui retire. Les fichiers du dépôt
+sont écrits pour rester **corrects même sans elles** — c'est la raison du bloc de
+contrôle décrit plus haut — mais les omettre transforme un refus lisible en une
+suite d'erreurs à interpréter, au pire moment pour le faire.
+
+Un refus n'est pas une panne : sans `CASCADE`, PostgreSQL rend
+`2BP01 dependent_objects_still_exist` tant qu'un objet d'un lot supérieur dépend
+de ce qui doit disparaître. Dérouler le lot supérieur d'abord.
+
+Avec `-v ON_ERROR_STOP=1`, `psql` s'arrête là et c'est le seul message affiché.
+Sans lui, le fichier en produit un second — `55000
+object_not_in_prerequisite_state` — qui nomme l'objet resté en place et rappelle
+que **la ligne de suivi a été conservée**. Ce second refus n'est pas une panne
+supplémentaire : c'est le fichier qui se refuse à lui-même de démonter la table
+de suivi d'un schéma intact. Les deux messages ensemble décrivent une base
+cohérente, pas une base à réparer.
+
+Les trois fichiers multi-objets — `0004`, `0009`, `0014` — n'affichent, eux,
+**qu'un seul message**, quelle que soit l'invocation : leur bloc unique s'arrête
+au premier `DROP` refusé, et tout ce qu'il avait fait avant est annulé avec lui.
+L'absence du second message y est donc la marque du bon fonctionnement, et non
+d'un contrôle qui manque.
+
+2. Vérifier, à chaque fichier ou au moins à la fin :
+
+```bash
+npm run db:status
+```
+
+Les migrations déroulées doivent **réapparaître dans « En attente »**, et les
+rubriques « Dérives d'empreinte » et « Appliquées mais absentes du dépôt » rester
+à zéro. Un « La base est à jour » après un retour arrière est le symptôme exact du
+défaut que ce mécanisme corrige : ne pas passer outre.
+
+3. Remonter, si la descente était provisoire :
+
+```bash
+npm run db:migrate
+```
+
+`db:migrate` réapplique exactement les migrations déroulées, dans l'ordre, et
+réenregistre leur empreinte. La structure revient à l'identique ; **les données,
+elles, ne reviennent pas**.
+
+L'aller-retour du lot organisations est éprouvé sur base jetable par
+`tests/integration/db-rollback.test.ts` : descente dans l'ordre documenté, absence
+de table, de type énuméré et de droit résiduels, migrations de nouveau signalées
+en attente, remontée, comparaison structurelle du schéma avant et après, refus du
+sens interdit, et refus d'une garde d'autorisation privée de sa table. Le fichier
+rejoue les retours arrière **dans les deux formes d'invocation** : d'un seul
+tenant, et découpés énoncé par énoncé en autocommit comme le fait `psql -f` par
+défaut. C'est cette seconde forme qui éprouve les propriétés ci-dessus là où
+elles peuvent être fausses.
+
+Le **refus partiel** a son propre révélateur dans ce fichier : `0014` joué après
+`0017` et `0016` mais **avant** `0015`, c'est-à-dire la seule situation où
+PostgreSQL refuse un `DROP` au milieu de la liste. Il constate les trois choses
+qui distinguent les trois versants — aucun type détruit, ligne de suivi
+conservée, et surtout **base encore réparable par `npm run db:migrate`**. Seul le
+troisième constat sépare une base cohérente d'une base coincée : les deux
+premiers restaient vrais dans l'état que la correction précédente fabriquait.
+
 ---
 
 ## Migrations du socle (lot 0)
@@ -95,7 +283,7 @@ Garanties attendues du moteur :
 | `0001` | Extensions PostGIS et pgcrypto | note en tête, pas de `.down.sql` |
 | `0002` | Rôle applicatif sans droit de schéma, durcissement de `public` | note en tête, pas de `.down.sql` |
 | `0003` | Fonction partagée `set_updated_at()` | `.down.sql` |
-| `0004` | Types énumérés des machines à états | `.down.sql` |
+| `0004` | Types énumérés des machines à états | `.down.sql`, quatre types en bloc unique |
 | `0005` | Table `outbox` | `.down.sql`, avec garde-fou |
 | `0006` | Journal `audit_logs`, immuable | note en tête, pas de `.down.sql` |
 | `0007` | Table témoin d'idempotence et d'anti-double affectation | `.down.sql` |
@@ -124,10 +312,27 @@ comportement recherché : il faut dérouler les retours arrière dans l'ordre
 inverse. Un `CASCADE` supprimerait les dépendances en silence — typiquement la
 colonne `status` d'une table, donc l'état métier des missions.
 
+Il retire aussi sa ligne de `public.schema_migrations`, **et seulement si ses
+objets ont réellement disparu** : voir « Dérouler un retour arrière » plus haut,
+qui vaut pour les trois lots.
+
+`0004_shared-enums.down.sql` défait **quatre** types et emploie donc le montage
+en bloc unique décrit plus haut. Il en avait le besoin le plus immédiat des trois
+fichiers multi-objets : `mission_status` est le premier de sa liste et il est
+porté par `idempotency_witness.status` (`0007`), si bien que le simple fait de
+jouer ce fichier sur une base à jour faisait disparaître les trois autres types
+avant que le contrôle final ne refuse — sans qu'aucune commande du dépôt ne le
+signale ensuite.
+
 `0005_outbox.down.sql` va plus loin et **refuse la suppression tant qu'il reste
 des messages non traités** : un retour arrière ne doit pas faire disparaître sans
-bruit une notification due à un intervenant engagé. Pour forcer, drainer ou
-exporter la file d'abord :
+bruit une notification due à un intervenant engagé. Le comptage et le
+`DROP TABLE` sont **dans un seul bloc `DO`, donc indissociables**, et l'ordre des
+deux n'y suffisait pas : séparés en deux énoncés, `psql` les dissociait — il les
+envoie séparément et poursuit après un refus — et la table partait malgré le
+refus, avec ses messages non envoyés. Un garde-fou qui se contourne par la façon
+d'invoquer le fichier ne garde rien. Pour forcer, drainer ou exporter la file
+d'abord :
 
 ```sql
 \copy (SELECT * FROM public.outbox WHERE processed_at IS NULL) TO 'outbox-en-attente.csv' CSV HEADER
@@ -446,7 +651,7 @@ de schéma ne s'exécutent jamais sans sauvegarde vérifiée préalable.
 | N° | Objet | Retour arrière |
 |---|---|---|
 | `0008` | Extension `citext` | note en tête, pas de `.down.sql` |
-| `0009` | Types énumérés du domaine identité | `.down.sql` |
+| `0009` | Types énumérés du domaine identité | `.down.sql`, deux types en bloc unique |
 | `0010` | Table `user_profiles` | `.down.sql`, avec avertissement |
 | `0011` | Table `auth_challenges` (codes à usage unique) | `.down.sql` |
 | `0012` | Table `auth_attempts` (limitation de tentatives) | `.down.sql` |
@@ -460,9 +665,10 @@ l'identifiant de connexion de tous les comptes. Une extension laissée en place
 est inerte pour une version antérieure du code.
 
 Les cinq autres en fournissent un, **sans `CASCADE`**, et ils doivent être
-déroulés dans l'ordre inverse : `0013`, `0012`, `0011`, `0010`, `0009`. Tout
-autre ordre est refusé par PostgreSQL, et c'est le comportement recherché.
-Vérifié en conditions réelles :
+déroulés dans l'ordre inverse : `0013`, `0012`, `0011`, `0010`, `0009` — et,
+depuis le lot organisations, seulement après `0017` à `0014`. Commande et
+vérification : « Dérouler un retour arrière ». Tout autre ordre est refusé par
+PostgreSQL, et c'est le comportement recherché. Vérifié en conditions réelles :
 
 - `0009.down` avant `0010.down` → `cannot drop type user_profile_status because
   other objects depend on it` ;
@@ -613,3 +819,353 @@ n'existe pas encore (US-012 et US-014). Le lot qui crée la table doit ajouter l
 condition à la liste ci-dessus et la couvrir par un test d'accès dédié. Tant que
 ce n'est pas fait, seule la suspension du **compte** coupe l'accès, pas la
 suspension d'une **adhésion**.
+
+> **Point clos par les migrations `0014` à `0017`.** La table existe désormais.
+> La cinquième condition, sa formulation exacte et le contrat de non-mise en
+> cache sont dans « Ce qui rend un rôle effectif », plus bas.
+
+---
+
+## Migrations du lot 1 — organisations
+
+| N° | Objet | Retour arrière |
+|---|---|---|
+| `0014` | Types énumérés du domaine organisations | `.down.sql`, cinq types en bloc unique |
+| `0015` | Table `organizations` | `.down.sql`, avec avertissement |
+| `0016` | Table `organization_members` | `.down.sql`, avec procédure d'export |
+| `0017` | Registre central d'idempotence `idempotency_keys` | `.down.sql`, avec avertissement |
+
+### Vocabulaire arrêté — valeurs à employer telles quelles
+
+Cinq types énumérés sont créés par `0014`. Ils sont la référence unique : la
+règle de `0004` s'applique sans exception, **aucune colonne de statut ne doit
+être déclarée en `text` avec une contrainte `CHECK`**.
+
+| Type PostgreSQL | Valeurs |
+|---|---|
+| `organization_type` | `OPERATIONAL_SERVICE`, `LOCAL_AUTHORITY`, `COMPANY`, `ASSOCIATION`, `FARM` |
+| `organization_verification_status` | `PENDING`, `VERIFIED`, `REJECTED` |
+| `organization_status` | `ACTIVE`, `SUSPENDED`, `CLOSED` |
+| `organization_member_role` | `CONTRIBUTOR`, `COORDINATOR`, `ORG_ADMIN`, `PLATFORM_ADMIN`, `OBSERVER` |
+| `organization_member_status` | `INVITED`, `ACTIVE`, `SUSPENDED`, `REVOKED` |
+
+Trois précisions qui évitent une erreur silencieuse.
+
+1. **`organization_type` est plus large que les exemples qui l'ont inspiré.**
+   `docs/seed-data.md` cite un « service incendie territorial » et une
+   « commune » ; le référentiel retient `OPERATIONAL_SERVICE` et
+   `LOCAL_AUTHORITY`, qui les contiennent. Écrire `FIRE_SERVICE` ou
+   `MUNICIPALITY` échoue — c'est exactement l'écart que les blocs de seed
+   préparés au lot 0 portaient, et qu'il a fallu corriger à leur activation.
+2. **`verification_status` et `status` sont deux axes indépendants.** Le
+   premier répond à « cette structure est-elle celle qu'elle prétend être ? »,
+   le second à « ce compte d'organisation est-il utilisable ? ». Une
+   organisation en attente de vérification est `verification_status = 'PENDING'`
+   et `status = 'ACTIVE'` : son administrateur peut travailler, mais toute
+   action sensible lui est refusée par `ORGANIZATION_NOT_VERIFIED`. Écrire
+   `'PENDING'` dans `status` échoue, la valeur n'existe pas dans ce type.
+3. **L'ordre de `organization_member_role` n'est PAS une hiérarchie.** Il suit
+   l'ordre de `docs/permissions.md`, où `OBSERVER` figure en dernier alors
+   qu'il est le rôle le moins capable. Une garde écrite
+   `role >= 'ORG_ADMIN'` accorderait donc à un observateur les droits d'un
+   administrateur d'organisation. Les gardes énumèrent les rôles autorisés,
+   action par action ; elles ne comparent jamais l'ordre du type. C'est la
+   différence avec `user_verification_level` de `0009`, dont l'ordre est
+   volontairement significatif.
+
+### Colonnes de `organizations`
+
+`id`, `name`, `type`, `registration_number`, `registration_number_normalized`,
+`territory_code`, `verification_status`, `status`, `version`, `created_at`,
+`updated_at`.
+
+- `registration_number` est stocké **tel qu'il a été saisi**, séparateurs
+  compris : un numéro d'immatriculation se lit par groupes, et normaliser
+  l'affichage appauvrirait la vérification humaine d'US-013.
+- `registration_number_normalized` est une colonne **générée par le serveur**
+  (majuscules, caractères non alphanumériques retirés). C'est elle qui porte
+  l'unicité, et elle **refuse toute écriture directe** : `INSERT` ou `UPDATE`
+  qui la mentionne échoue avec `cannot insert a non-DEFAULT value into column`.
+  Ce n'est pas une commodité : une normalisation faite côté application
+  divergerait entre une route, une reprise de données et une console, et
+  l'unicité ne porterait plus sur la même chose selon l'origine de la ligne.
+  `123 456 789 00012` et `123-456-789/00012` sont donc le même numéro.
+- `version` est contrainte `> 0`. Le contrat pour le code est explicite :
+  l'incrément appartient à l'`UPDATE` lui-même, avec
+  `WHERE version = $expectedVersion`. Un incrément par déclencheur rendrait
+  l'écriture concurrente indétectable, et `VERSION_CONFLICT` ne serait jamais
+  levé.
+- `territory_code` accepte `NULL`, pour une organisation sans périmètre
+  déclaré. Conséquence à connaître : un filtre `territory_code = ...` exclut
+  ces lignes. Le lot qui activera le filtrage territorial de
+  `docs/permissions.md` devra décider s'il les inclut ou rend la colonne
+  obligatoire, et l'inscrire dans `docs/decision-log.md`.
+
+### Colonnes de `organization_members`
+
+`organization_id`, `user_id`, `role`, `status`, `valid_from`, `valid_until`,
+`created_at`, `updated_at`.
+
+**Pas de colonne `id`.** La clé primaire est composite,
+`(organization_id, user_id)`, et la conséquence est voulue : une personne
+détient **au plus un rôle par organisation**. Deux adhésions concurrentes
+auraient obligé chaque garde à choisir entre elles, et le choix le plus naturel
+— retenir la plus permissive — aurait transformé une adhésion oubliée en
+élévation de privilèges silencieuse. Appartenir à **plusieurs** organisations
+reste possible, avec des rôles et des statuts différents ; c'est le cas que le
+bloc de seed `003` installe volontairement.
+
+### Ce qui rend un rôle effectif
+
+Trois conditions, toutes nécessaires, **relues à chaque requête** :
+
+```sql
+   organization_members.status = 'ACTIVE'
+AND organization_members.valid_from <= now()
+AND (organization_members.valid_until IS NULL
+     OR organization_members.valid_until > now())
+```
+
+C'est la **cinquième condition** annoncée par la section « Ce qui rend une
+session valide », et le point ouvert laissé par US-010 est ainsi clos. Trois
+propriétés de cette formulation, qui ne sont pas des détails :
+
+- `valid_from <= now()` — une adhésion datée du futur n'ouvre rien. Sans cette
+  borne, préparer une adhésion à l'avance l'activerait aussitôt ;
+- `valid_until > now()`, comparaison **stricte** — à la seconde exacte de
+  l'échéance, l'adhésion est déjà close. Même choix que `sessions_revoked_at` :
+  dans le doute, on coupe ;
+- `status = 'ACTIVE'`, **énuméré et non « différent de SUSPENDED »**. Une valeur
+  ajoutée plus tard au type serait alors refusée par défaut.
+
+L'expiration est portée par des **données**, pas par une tâche de fond : une
+adhésion cesse d'ouvrir l'accès à l'instant dit, même si aucun traitement ne
+tourne. Un travail périodique qui basculerait le statut laisserait l'accès
+ouvert entre l'échéance et son prochain passage.
+
+**Aucun cache.** `docs/architecture.md` interdit de cacher les autorisations
+critiques, et la raison est directe : un rôle mis en cache survivrait à sa
+propre suspension pendant la durée du cache, c'est-à-dire pendant la fenêtre
+exacte que la suspension existe pour fermer. Le coût réel est une lecture sur la
+clé primaire de `organization_members`.
+
+**Deux gardes, pas une.** L'adhésion dit ce que la personne peut faire ; elle ne
+dit pas si l'organisation a le droit d'agir. Une action sensible exige aussi
+`organizations.verification_status = 'VERIFIED'` — sinon
+`ORGANIZATION_NOT_VERIFIED` — et `organizations.status = 'ACTIVE'`. Le jeu de
+démonstration porte précisément ce cas : l'administrateur de « Travaux Publics
+Horizon » a une adhésion parfaitement valide dans une organisation qui ne l'est
+pas encore.
+
+### Index du lot
+
+| Index | Objet |
+|---|---|
+| `uq_organizations_registration_number` | unicité de l'immatriculation **normalisée**, globale — elle couvre aussi les organisations rejetées et closes, pour qu'un refus ne se contourne pas par une seconde déclaration |
+| `idx_organizations_verification_status` | file d'administration (`écran 10`, `GET /admin/organizations/pending`) — partiel `WHERE verification_status <> 'VERIFIED'`, trié `created_at` croissant : une file se traite du plus ancien au plus récent |
+| `idx_organizations_territory_code` | filtrage territorial ; complet, donc indexe aussi les lignes sans territoire |
+| `organization_members_pkey` | `(organization_id, user_id)` — sert aussi le listage des membres d'une organisation |
+| `idx_organization_members_user_status` | `(user_id, status)` — résolution du rôle à chaque requête |
+| `uq_idempotency_keys_client_event_id` | unicité globale de `client_event_id` |
+| `idx_idempotency_keys_created_at` | sélection de la purge par ancienneté |
+
+**Aucun index supplémentaire sur `organization_members(organization_id)`**, et
+l'absence est délibérée : l'index unique qui porte la clé primaire a cette
+colonne en tête et couvre déjà ce sens de lecture. En créer un second serait un
+doublon — coût d'écriture à chaque mutation, aucun gain de lecture.
+
+### Registre central d'idempotence `idempotency_keys`
+
+`0017` livre la table dont `docs/api-contract.md` a besoin pour
+`IDEMPOTENCY_CONFLICT` : `id`, `client_event_id`, `operation`, `actor_user_id`,
+`request_fingerprint`, `target_type`, `target_id`, `result`, `created_at`,
+`updated_at`.
+
+**À ne pas confondre avec `idempotency_witness`** (`0007`), qui reste une table
+témoin sans aucun `GRANT`, interdite au code applicatif et supprimée par la
+migration du lot 5. Les deux coexistent ; l'application n'écrit que dans
+`idempotency_keys`.
+
+Séquence attendue, dans **une seule** transaction :
+
+1. `INSERT` de la réservation ; `23505` signifie « déjà vu » ;
+2. la mutation métier, l'audit et l'écriture dans `outbox` ;
+3. `UPDATE` de la ligne réservée avec la cible produite et la réponse à rejouer.
+
+Sur `23505`, relire la ligne existante :
+
+- `request_fingerprint` **identique** — rejeu légitime, renvoyer `result` sans
+  nouvel effet ;
+- `request_fingerprint` **différent** — deux requêtes distinctes présentent la
+  même clé, c'est `IDEMPOTENCY_CONFLICT`. Rejouer la première réponse serait
+  pire que refuser : l'appelant croirait sa seconde demande satisfaite alors
+  qu'elle n'a rien produit.
+
+Ce que le registre ferme. `src/infrastructure/audit/audit-log.ts` détectait un
+rejeu en relisant le journal d'audit, faute de registre, et documentait sa
+limite : « deux rejeux strictement simultanés ne se voient pas l'un l'autre ».
+Une réservation par insertion supprime cette fenêtre — la seconde transaction se
+bloque sur l'index unique jusqu'à ce que la première tranche.
+
+#### La portée de `client_event_id` reste un point ouvert
+
+`0017` **ne tranche pas** la contradiction décrite plus haut. Il applique la
+portée **globale** de `0007`, par cohérence et pour la même raison d'asymétrie :
+global vers par acteur est un relâchement qui ne peut pas échouer, l'inverse est
+un durcissement qui échoue en production. La décision appartient toujours au
+lot 5 et doit être inscrite dans `docs/decision-log.md`, avec correction de l'un
+des deux documents de conception.
+
+Deux choix de schéma servent uniquement à garder ce report peu coûteux :
+
+- la clé primaire est une colonne de substitution, **pas** `client_event_id` :
+  une clé primaire ne se remplace pas sans verrou exclusif, alors qu'un index
+  unique ordinaire se remplace à chaud par
+  `CREATE UNIQUE INDEX CONCURRENTLY` puis `DROP INDEX CONCURRENTLY` ;
+- `actor_user_id` est **déjà stocké** bien qu'il n'entre pas dans l'unicité : la
+  colonne serait irremplissable rétroactivement le jour où l'index en aurait
+  besoin.
+
+Le registre lui-même est l'option (a) du tableau des trois options, rendue
+**disponible** et non imposée : si le lot 5 retient la portée par acteur, la
+table reste correcte, seul son index unique change.
+
+### Convention d'empreinte, valeur ajoutée par ce lot
+
+`idempotency_keys.request_fingerprint` rejoint les cinq colonnes contraintes au
+format `^[0-9a-f]{64}$`, et il relève du même régime que `identifier_hash` ou
+`code_hash` :
+
+| Colonne | Entropie de la valeur d'origine | Algorithme exigé |
+|---|---|---|
+| `request_fingerprint` | un corps de requête : un nom, un type pris dans cinq valeurs, un numéro à format connu | **HMAC**-SHA-256, secret hors base |
+
+Un condensé nu d'un corps de requête s'inverse par énumération : il révélerait
+exactement le contenu que la colonne existe pour ne pas stocker. Le secret vient
+du gestionnaire de secrets (`docs/security.md`), jamais de la base.
+
+### Valeurs de `target_type` ajoutées par ce lot
+
+La convention de casse ne change pas : majuscules et séparateur bas,
+`^[A-Z][A-Z0-9_]{2,63}$`. Écrire `'Organization'` échoue, avec un message qui ne
+dit pas pourquoi.
+
+```text
+ORGANIZATION   ORGANIZATION_MEMBER
+```
+
+`ORGANIZATION` figurait déjà dans les valeurs en usage du lot 0.
+`ORGANIZATION_MEMBER` est nouveau : l'entité `OrganizationMember` de
+`docs/domain-model.md` donne `ORGANIZATION_MEMBER`, jamais `OrganizationMember`
+ni `ORGANIZATION-MEMBER`.
+
+Les mêmes codes servent à `outbox.aggregate_type`, dont la contrainte de forme
+est identique.
+
+### Droits en vigueur à la fin du lot organisations
+
+| Table | `fire_support_app` |
+|---|---|
+| `organizations` | `SELECT`, `INSERT`, `UPDATE` |
+| `organization_members` | `SELECT`, `INSERT`, `UPDATE` |
+| `idempotency_keys` | `SELECT`, `INSERT`, `UPDATE` |
+
+**Aucun `DELETE` nulle part**, et l'omission est délibérée dans les trois cas :
+
+- `organizations` — la fermeture est un statut (`CLOSED`). Une suppression
+  physique emporterait les adhésions et ferait perdre le lien des lignes d'audit
+  déjà écrites, c'est-à-dire la preuve de ce qui a été publié au nom de
+  l'organisation ;
+- `organization_members` — retirer quelqu'un est un changement de statut
+  (`REVOKED`) ou la pose d'un terme (`valid_until`). Les lignes d'audit portent
+  `actor_organization_id` : effacer l'adhésion supprimerait le seul moyen de
+  reconstituer à quel titre la personne agissait, et donnerait à un compte
+  applicatif compromis le moyen d'effacer la trace de l'appartenance dont il
+  s'est servi ;
+- `idempotency_keys` — effacer une clé rend la commande correspondante
+  **rejouable**, donc offre à un compte compromis le moyen de faire produire
+  deux fois le même effet à une commande interceptée.
+
+### Rétention et purge de `idempotency_keys`
+
+Le registre croît d'une ligne par mutation critique et n'a aucune limite
+naturelle. Comme pour les autres tables, la requête est préparée mais **la durée
+reste à valider juridiquement** (`docs/privacy-rgpd.md`), et la purge s'exécute
+avec le compte de migration. `idx_idempotency_keys_created_at` couvre la
+sélection.
+
+```sql
+DELETE FROM public.idempotency_keys
+WHERE created_at < now() - interval '90 days';
+```
+
+**Point de vigilance, à ne pas se cacher.** Purger une clé rend sa commande
+rejouable. La fenêtre de rétention doit donc dépasser largement celle du mode
+dégradé de `docs/offline-mode.md`, où une action peut rester en file locale sur
+un téléphone hors réseau pendant plusieurs jours. Une purge trop agressive ne se
+manifesterait pas par une erreur, mais par un second effet produit au retour du
+réseau — exactement ce que l'idempotence existe pour empêcher.
+
+### Stratégie de retour
+
+Les quatre migrations fournissent un retour arrière, **sans `CASCADE`**, et ils
+doivent être déroulés dans l'ordre inverse : `0017`, `0016`, `0015`, `0014`,
+puis seulement `0013` et suivants. La procédure complète — commande, ordre,
+vérification par `npm run db:status`, remontée par `npm run db:migrate` — est dans
+« Dérouler un retour arrière ». Après ces quatre fichiers, `db:status` doit
+signaler `0014` à `0017` **en attente** ; s'il annonce « La base est à jour », le
+schéma et la table de suivi ont divergé et il ne faut rien déployer par-dessus.
+
+Tout autre ordre est refusé par PostgreSQL, et c'est le comportement recherché.
+Vérifié en conditions réelles :
+
+- `0015.down` avant `0016.down` → `cannot drop table organizations because other
+  objects depend on it` ;
+- `0014.down` avant `0016.down` et `0015.down` → `cannot drop type
+  organization_member_status because other objects depend on it`. **Un seul
+  message**, et non cinq : le bloc unique s'arrête au premier type refusé, et les
+  suppressions qu'il avait déjà faites sont annulées avec lui ;
+- `0010.down` tant que `organization_members` existe → `cannot drop table
+  user_profiles because other objects depend on it`, qui **cite désormais aussi**
+  `organization_members_user_id_fkey` à côté des contraintes de `sessions` et de
+  `auth_challenges`. La chaîne de retour du lot identité s'est allongée d'un
+  cran.
+
+Trois effets de bord à connaître avant de déclencher un retour arrière :
+
+- `0015.down` **détruit des organisations**, et avec elles la trace des
+  vérifications déjà prononcées. Les lignes d'`audit_logs` portant
+  `target_type = 'ORGANIZATION'` survivent, elles — le journal ne référence
+  aucune table par clé étrangère — et désigneront des identifiants sans ligne
+  correspondante, ce qui est le comportement voulu ;
+- `0016.down` **supprime tous les rôles**. Aucun rôle n'étant écrit ailleurs
+  dans le schéma, plus personne n'est coordinateur ni administrateur. Les
+  sessions ouvertes restent valides, elles ne dépendent pas de cette table :
+  toute garde qui interroge l'appartenance doit alors **refuser**, par refus par
+  défaut. C'est le sens sûr, et il faut le vérifier plutôt que l'espérer — une
+  couche d'autorisation qui laisserait passer faute de table transformerait ce
+  retour arrière en ouverture générale. La commande d'export de l'historique des
+  mandats est dans l'en-tête du fichier ;
+- `0017.down` **rend rejouable toute commande déjà exécutée**. Sur une base
+  portant du trafic réel, la voie est un déploiement en plusieurs étapes.
+
+### Blocs de seed activés par ce lot
+
+`001_organizations.sql` et `003_organization-members.sql` étaient écrits et
+inactifs depuis le lot 0 ; ils se sont activés d'eux-mêmes dès que `0015` et
+`0016` ont créé leurs tables, sans qu'une ligne de `scripts/db/seed.ts` change.
+Leur contenu a dû être **réaligné sur le schéma livré**, et les écarts corrigés
+méritent d'être connus, parce qu'ils sont représentatifs de ce que produit un
+bloc préparé avant que son vocabulaire n'existe :
+
+| Bloc | Écart | Correction |
+|---|---|---|
+| `001` | `type = 'FIRE_SERVICE'` | `OPERATIONAL_SERVICE` |
+| `001` | `type = 'MUNICIPALITY'` | `LOCAL_AUTHORITY` |
+| `001` | `status = 'PENDING'` — valeur **inexistante** dans `organization_status`, confusion entre l'axe vérification et l'axe cycle de vie | `status = 'ACTIVE'`, la mise en attente restant portée par `verification_status` |
+| `003` | colonne `id` — la table n'en a pas, sa clé est composite | colonne retirée |
+| `003` | `ON CONFLICT (id)` — ne désignait plus aucune contrainte, la **seconde** exécution du seed aurait échoué | `ON CONFLICT (organization_id, user_id)` |
+
+L'en-tête `@etat` des deux blocs passe de `inactif` à `actif`. Le tableau
+d'état de `supabase/seed/README.md` doit être mis à jour en conséquence :
+`001` et `003` ne sont plus « préparé » mais « actif ».

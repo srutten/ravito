@@ -27,6 +27,12 @@ const APPLICATION_ROLE = 'fire_support_app';
 /** `insufficient_privilege`, code attendu de tout refus de droit. */
 const INSUFFICIENT_PRIVILEGE = '42501';
 
+/**
+ * Tables créées par le lot 1 (migrations 0015 à 0017), toutes trois ouvertes en lecture et en
+ * écriture au compte applicatif, aucune en suppression.
+ */
+const ORGANIZATION_TABLES = ['idempotency_keys', 'organization_members', 'organizations'] as const;
+
 let setup: DisposableDatabaseSetup = NOT_PREPARED;
 
 beforeAll(async () => {
@@ -147,6 +153,12 @@ describe('attributs du rôle applicatif (critère 17)', () => {
 
     expect(grants.get('audit_logs')).toEqual(['INSERT', 'SELECT']);
     expect(grants.get('outbox')).toEqual(['INSERT', 'SELECT', 'UPDATE']);
+    // Lot 1 (US-012). Les trois tables reçoivent `SELECT, INSERT, UPDATE` puis un
+    // `REVOKE DELETE, TRUNCATE` explicite (0015:217, 0016:155, 0017:234). Rien ne figeait ce
+    // régime : une migration ultérieure pouvait l'élargir sans qu'aucun test ne rougisse.
+    for (const table of ORGANIZATION_TABLES) {
+      expect(grants.get(table), table).toEqual(['INSERT', 'SELECT', 'UPDATE']);
+    }
     // Refus par défaut : la table témoin n'a reçu aucun droit, donc elle n'apparaît pas du tout.
     expect(grants.has('idempotency_witness')).toBe(false);
     expect(grants.has('schema_migrations')).toBe(false);
@@ -323,5 +335,187 @@ describe('schéma vu du compte applicatif (critère 17)', () => {
     );
 
     expect(refusal.code).toBe(INSUFFICIENT_PRIVILEGE);
+  });
+});
+
+/**
+ * Tables d'organisation (US-012, rubrique « Données » de la Definition of Done).
+ *
+ * Les migrations 0015 à 0017 posent le même régime sur les trois tables : lire, écrire, corriger,
+ * jamais effacer. Ce n'est pas une précaution de style. Retirer quelqu'un d'une organisation est un
+ * changement de statut (`REVOKED`), fermer une organisation en est un autre (`CLOSED`), et une
+ * suppression physique ferait perdre le lien des lignes d'audit déjà écrites — c'est-à-dire la
+ * preuve de ce qui a été publié au nom de cette organisation, et à quel titre.
+ *
+ * DEUX FORMES D'ASSERTION, PARCE QU'ELLES NE COUVRENT PAS LA MÊME FAUTE. Les droits déclarés se
+ * lisent dans `role_table_grants` ; c'est là que se voit une migration qui rouvre. L'exécution
+ * réelle sous `SET LOCAL ROLE`, elle, est la seule preuve que le refus a bien lieu contre le vrai
+ * moteur : un `REVOKE` peut être annulé par un `GRANT` postérieur, par une appartenance de rôle, ou
+ * par un droit `PUBLIC` que personne n'avait vu passer.
+ */
+describe('tables d’organisation vues du compte applicatif (US-012)', () => {
+  it('n’a DELETE ni TRUNCATE sur AUCUNE table du schéma, présente ou future', async (context) => {
+    const database = databaseOrSkip(setup, context);
+    const { rows } = await database.owner.query<{
+      readonly table_name: string;
+      readonly privilege_type: string;
+    }>(
+      `select table_name::text as table_name, privilege_type::text as privilege_type
+         from information_schema.role_table_grants
+        where grantee = $1 and table_schema = 'public'
+        order by table_name, privilege_type`,
+      [APPLICATION_ROLE],
+    );
+
+    // LA PARTITION EST FAITE ICI, PAS EN SQL, et c'est délibéré. Un filtre
+    // `privilege_type in ('DELETE', 'TRUNCATE')` mal orthographié — ou un nom de rôle fautif —
+    // rendrait zéro ligne, et l'assertion « liste vide » passerait sans avoir rien mesuré. La même
+    // liste sert donc de preuve ET de témoin : elle ne peut pas être vide sans que le témoin
+    // ci-dessous échoue.
+    const removals = rows.filter(
+      (row) => row.privilege_type === 'DELETE' || row.privilege_type === 'TRUNCATE',
+    );
+
+    // FORME EXHAUSTIVE, ET C'EST TOUT SON INTÉRÊT. Énumérer les tables une à une ne protège que de
+    // celles auxquelles on a pensé : `GRANT ALL ON ALL TABLES IN SCHEMA public TO fire_support_app`
+    // — le raccourci que l'on écrit en ajoutant une table et en oubliant son GRANT — ouvrirait
+    // `organizations` et `organization_members` sans faire rougir une seule assertion nominative.
+    // Ici la liste attendue est VIDE : toute ouverture, sur n'importe quelle table, rougit. Si une
+    // table à venir a réellement besoin d'être purgée par l'application, ce test doit être relu EN
+    // MÊME TEMPS que sa migration, ce qui est exactement le point.
+    expect(removals).toStrictEqual([]);
+
+    // TÉMOIN : la vue a bien répondu, et pour les trois tables du lot.
+    const covered = [...new Set(rows.map((row) => row.table_name))].filter((name) =>
+      (ORGANIZATION_TABLES as readonly string[]).includes(name),
+    );
+    expect(covered).toStrictEqual([...ORGANIZATION_TABLES]);
+  });
+
+  it('ferme et révoque par un STATUT, et ne peut effacer ni l’organisation ni l’adhésion', async (context) => {
+    const database = databaseOrSkip(setup, context);
+    const client = database.owner;
+
+    const outcome = await withApplicationRole(client, async () => {
+      // Le montage est écrit SOUS LE RÔLE APPLICATIF, jamais par le propriétaire : c'est ce qui
+      // fait de la suite un test de droits et non un test de contraintes. Données fictives, préfixe
+      // `FICTIF-` et territoire `ZZ`, comme le jeu de démonstration.
+      const organization = await client.query<{ readonly id: string }>(
+        `insert into public.organizations (name, type, registration_number, territory_code)
+              values ('Structure sonde des droits', 'COMPANY', 'FICTIF-DROITS-0001', 'ZZ-DEMO-09')
+           returning id`,
+      );
+      const organizationId = organization.rows[0]?.id ?? '';
+      const profile = await client.query<{ readonly id: string }>(
+        `insert into public.user_profiles (display_name, email)
+              values ('Sonde D.', 'sonde-droits-sql@exemple.test')
+           returning id`,
+      );
+      const userId = profile.rows[0]?.id ?? '';
+      await client.query(
+        `insert into public.organization_members (organization_id, user_id, role)
+              values ($1, $2, 'ORG_ADMIN')`,
+        [organizationId, userId],
+      );
+
+      // Les deux écritures que la conception PRÉVOIT à la place d'une suppression. Elles doivent
+      // réussir : sans ce témoin positif, les refus qui suivent seraient tout aussi vrais si
+      // l'application n'avait aucun droit du tout sur ces tables, et le test ne distinguerait pas
+      // « suppression fermée » de « table murée ».
+      const closed = await client.query<{ readonly status: string }>(
+        `update public.organizations set status = 'CLOSED', version = version + 1
+          where id = $1 returning status::text as status`,
+        [organizationId],
+      );
+      const revoked = await client.query<{ readonly status: string }>(
+        `update public.organization_members set status = 'REVOKED'
+          where organization_id = $1 and user_id = $2 returning status::text as status`,
+        [organizationId, userId],
+      );
+
+      // Les six effacements que la conception interdit : ciblé, en masse et vidage, sur chacune
+      // des deux tables. Le vidage est énuméré à part parce qu'il relève d'un droit distinct, que
+      // `REVOKE DELETE` seul ne retirerait pas.
+      const attempts = [
+        ['organizations', 'delete from public.organizations where id = $1', [organizationId]],
+        ['organizations', 'delete from public.organizations', []],
+        ['organizations', 'truncate public.organizations', []],
+        [
+          'organization_members',
+          'delete from public.organization_members where organization_id = $1',
+          [organizationId],
+        ],
+        ['organization_members', 'delete from public.organization_members', []],
+        ['organization_members', 'truncate public.organization_members', []],
+      ] as const;
+      const refusals: { readonly table: string; readonly failure: PostgresFailure }[] = [];
+      for (const [table, sql, values] of attempts) {
+        refusals.push({ table, failure: await expectRefused(client, sql, values) });
+      }
+
+      return {
+        closedStatus: closed.rows[0]?.status,
+        revokedStatus: revoked.rows[0]?.status,
+        refusals,
+      };
+    });
+
+    expect(outcome.closedStatus).toBe('CLOSED');
+    expect(outcome.revokedStatus).toBe('REVOKED');
+    expect(outcome.refusals).toHaveLength(6);
+    for (const { table, failure } of outcome.refusals) {
+      expect(failure.code, table).toBe(INSUFFICIENT_PRIVILEGE);
+      // Le message nomme la table : un refus venu d'ailleurs — transaction déjà avortée, objet
+      // absent — ne satisferait pas cette assertion, alors qu'il satisferait un simple `catch`.
+      expect(failure.message, table).toContain(table);
+    }
+  });
+
+  it('inscrit le résultat d’une clé d’idempotence, et ne peut pas la retirer', async (context) => {
+    const database = databaseOrSkip(setup, context);
+    const client = database.owner;
+
+    const outcome = await withApplicationRole(client, async () => {
+      const reserved = await client.query<{ readonly id: string }>(
+        `insert into public.idempotency_keys (client_event_id, operation, request_fingerprint)
+              values (gen_random_uuid(), 'SONDE_DROITS', repeat('a', 64))
+           returning id`,
+      );
+      const keyId = reserved.rows[0]?.id ?? '';
+
+      // Réservation puis inscription du résultat : les deux temps de la vie d'une clé, tous deux
+      // dans les droits de l'application.
+      const completed = await client.query<{ readonly target_type: string }>(
+        `update public.idempotency_keys
+            set target_type = 'ORGANIZATION', target_id = gen_random_uuid()
+          where id = $1 returning target_type`,
+        [keyId],
+      );
+
+      return {
+        targetType: completed.rows[0]?.target_type,
+        refusals: {
+          'suppression ciblée': await expectRefused(
+            client,
+            'delete from public.idempotency_keys where id = $1',
+            [keyId],
+          ),
+          'suppression en masse': await expectRefused(
+            client,
+            'delete from public.idempotency_keys',
+          ),
+          vidage: await expectRefused(client, 'truncate public.idempotency_keys'),
+        },
+      };
+    });
+
+    expect(outcome.targetType).toBe('ORGANIZATION');
+    for (const [label, refusal] of Object.entries(outcome.refusals)) {
+      // EFFACER UNE CLÉ REND SA COMMANDE REJOUABLE. Un compte applicatif compromis obtiendrait
+      // ainsi le moyen de faire produire deux fois le même effet à une commande interceptée : le
+      // refus est ici une garantie d'idempotence autant qu'une garantie de droits.
+      expect(refusal.code, label).toBe(INSUFFICIENT_PRIVILEGE);
+      expect(refusal.message, label).toContain('idempotency_keys');
+    }
   });
 });
