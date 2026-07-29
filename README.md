@@ -110,7 +110,7 @@ Procédure reproductible, à exécuter depuis la racine du dépôt (`fire-suppor
 | `npm run test:watch` | Exécute les tests unitaires en mode surveillance. |
 | `npm run test:coverage` | Exécute les tests unitaires avec la couverture. |
 | `npm run test:integration` | Exécute les tests d'intégration (projet Vitest `integration`, dossier `tests/integration`). Nécessite une base démarrée et migrée. |
-| `npm run test:e2e` | Construit l'artefact de production puis exécute les tests de bout en bout Playwright (dossier `tests/e2e`), en profil mobile et bureau. Le port 3000 doit être libre : voir « Portes de qualité ». |
+| `npm run test:e2e` | Construit l'artefact de production puis exécute les tests de bout en bout Playwright (dossier `tests/e2e`), en profil mobile et bureau. Le serveur commun écoute sur le port dédié `3210` (`E2E_PORT`), jamais réutilisé : voir « Portes de qualité ». |
 | `npm run db:up` | Démarre le conteneur PostgreSQL avec PostGIS. |
 | `npm run db:down` | Arrête le conteneur et libère le port. |
 | `npm run db:migrate` | Applique les migrations. Livrée par US-002. |
@@ -127,21 +127,23 @@ Un changement n'est proposé à la revue que si ces portes passent en local, dan
 2. `npm run typecheck` : TypeScript strict, avec `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` et `verbatimModuleSyntax`.
 3. `npm run test` : tests unitaires. Ils ne nécessitent ni base ni réseau.
 4. `npm run test:integration` : tests d'intégration. Ils exigent une base démarrée par `npm run db:up` et migrée par `npm run db:migrate` ; les fichiers ne sont pas parallélisés entre eux car ils partagent la même base.
-5. `npm run test:e2e` : tests de bout en bout. La commande construit elle-même l'artefact de production, puis lance Playwright. Quatre des sept fichiers montent leur propre serveur sur un port libre — `accessibility`, `auth-sign-in`, `organizations`, `organizations-administration` ; les trois autres — `public-home`, `auth-entry-point`, `security-headers` — passent par le serveur commun, que Playwright démarre avec `npm run start` sur l'URL de `E2E_BASE_URL`, par défaut `http://localhost:3000`. Ce port doit être libre, ou servir l'artefact qui vient d'être construit : voir ci-dessous.
+5. `npm run test:e2e` : tests de bout en bout. La commande construit elle-même l'artefact de production, puis lance Playwright. Quatre des sept fichiers montent leur propre serveur sur un port libre — `accessibility`, `auth-sign-in`, `organizations`, `organizations-administration` ; les trois autres — `public-home`, `auth-entry-point`, `security-headers` — passent par le serveur commun, que Playwright démarre avec `npm run start` sur le **port dédié 3210**, réglable par `E2E_PORT`. Ce port n'est le défaut d'aucun outil : la pile Docker locale et les autres projets du poste ne le prennent pas.
 6. `npm run build` : construction de production. Une erreur de type ou d'import échoue ici même si le développement fonctionnait.
 
 `npm run verify` enchaîne les portes 1, 2, 3 et 6. Les portes 4 et 5 restent explicites, car elles dépendent d'une infrastructure locale.
 
-#### Libérer le port 3000 avant la porte 5
+#### Le port de la porte 5 est dédié, et jamais réutilisé
 
-La porte 5 est rouge tant qu'un service étranger occupe le port 3000, et l'échec ne désigne alors aucun défaut du code.
+Le serveur commun écoutait sur le port applicatif, celui-là même qu'occupe la pile Docker de ce dépôt — et, sur un poste de développement, tout autre projet Node. Les deux issues étaient mauvaises : en local, Playwright **réutilisait** ce qui s'y trouvait et jouait les trois fichiers dépendants contre cette application-là, quelle qu'elle fût ; en intégration continue, il s'arrêtait sur « port already used » sans qu'un seul test s'exécute. Mesuré sur un poste où un conteneur y servait une **autre base de code** : dix échecs qui ne désignaient aucun défaut du produit.
 
-- En local, Playwright réutilise le serveur déjà présent sur ce port (`reuseExistingServer`) : les trois fichiers qui en dépendent sont joués contre cette application-là, quelle qu'elle soit. Les échecs ressemblent à des régressions et n'en sont pas.
-- En intégration continue, la réutilisation est refusée : Playwright s'arrête sur « `http://localhost:3000` is already used » et pas un test ne s'exécute.
+Deux règles ferment ce cas.
 
-Marche à suivre : identifier ce qui tient le port, puis le libérer avant de lancer la porte. Sous Windows PowerShell, `Get-NetTCPConnection -LocalPort 3000` donne le processus ; si c'est un conteneur, `docker ps` le nomme et `docker stop <nom>` le libère. `npm run db:down` n'arrête que la base de données, jamais un conteneur applicatif.
+- **Le port est dédié** : `3210` par défaut, réglable par `E2E_PORT`. Il n'est le défaut d'aucun outil courant.
+- **Playwright ne réutilise jamais un serveur déjà présent**, pas même en local. Sur un port dédié, ce qui répond ne peut être qu'un serveur oublié par une exécution précédente, donc servant un artefact antérieur. L'échec « port déjà utilisé » est alors la bonne réponse : il désigne un processus à arrêter, là où une réutilisation silencieuse rendrait un verdict vert sur du code qui n'est plus le vôtre.
 
-Quand le port ne peut pas être libéré, seuls les quatre fichiers autonomes sont exécutables, car ils n'emploient jamais ce port : les désigner suffit, la configuration renonce alors d'elle-même au serveur commun — par exemple `npx playwright test tests/e2e/organizations.spec.ts`, ou `npm run test:e2e:organizations` qui reconstruit d'abord l'artefact. `E2E_SHARED_SERVER` tranche quand la déduction ne suffit pas : `off` sur un poste dont le port est tenu par autre chose, `on` pour un appel dont les filtres ne se laissent pas lire, par exemple un filtre par nom de test. La porte n'est pas complète pour autant : les trois autres fichiers, dont celui des en-têtes de sécurité, restent non joués.
+Si le port dédié est occupé, `Get-NetTCPConnection -LocalPort 3210` donne le processus sous Windows PowerShell ; `docker ps` nomme un conteneur, que `docker stop <nom>` libère. `npm run db:down` n'arrête que la base de données, jamais un conteneur applicatif.
+
+Pour viser un serveur monté à la main, donner `E2E_BASE_URL` **et** `E2E_SHARED_SERVER=off`. Ce dernier tranche aussi quand la déduction des fichiers visés ne suffit pas : `off` refuse le serveur commun, `on` l'exige — utile pour un appel filtré par nom de test, que la configuration ne sait pas rattacher à un fichier. Les quatre fichiers autonomes n'emploient jamais ce port et restent exécutables en toutes circonstances : les désigner suffit, par exemple `npm run test:e2e:organizations`, qui reconstruit d'abord l'artefact.
 
 ### Avertissement de sécurité
 

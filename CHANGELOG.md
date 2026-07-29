@@ -183,6 +183,19 @@ les écrans ; la validation par un administrateur plateforme relève d'US-013.
   `ORGANIZATION_CREATED`, `ORGANIZATION_UPDATED`, `ORGANIZATION_VERIFICATION_RESET` et
   `ORGANIZATION_MEMBER_ADDED`, toutes conformes au format `^[A-Z][A-Z0-9_]{2,63}$`, ainsi que
   l'agrégat `ORGANIZATION` et l'événement `ORGANIZATION_SUBMITTED` de l'outbox.
+- Port dédié à la porte de bout en bout, `3210` par défaut et réglable par `E2E_PORT`, en
+  remplacement du port applicatif. Ce dernier est celui qu'occupe la pile Docker du dépôt, et avec
+  elle tout autre projet Node d'un poste de développement : le serveur commun tombait donc sur une
+  application étrangère. Deux issues, toutes deux mauvaises — hors intégration continue Playwright
+  réutilisait ce qui répondait et rendait son verdict sur cette application-là, mesuré à dix échecs
+  sur un poste où un conteneur servait une autre base de code ; en intégration continue il refusait
+  de démarrer et pas un test ne s'exécutait.
+- Réutilisation d'un serveur existant refusée, même hors intégration continue. C'est l'arbitrage
+  laissé ouvert par la limite précédente : sur un port dédié, ce qui répond déjà ne peut être qu'un
+  serveur oublié par une exécution antérieure, donc servant un artefact antérieur. Un échec
+  « port déjà utilisé » désigne un processus à arrêter ; une réutilisation silencieuse rendait une
+  suite verte sur du code qui n'était plus celui du dépôt. `E2E_BASE_URL` avec
+  `E2E_SHARED_SERVER=off` reste la voie pour viser un serveur monté à la main.
 
 ### Sécurité — Organisations
 
@@ -292,23 +305,19 @@ les écrans ; la validation par un administrateur plateforme relève d'US-013.
   restées à l'écran. Ce n'est pas une fuite — ces lignes étaient déjà dans son navigateur, et une
   navigation neuve refuse l'écran entier — mais `docs/screens.md` veut qu'une permission refusée
   refuse l'écran, pas seulement la file.
-- Hors intégration continue, `npm run test:e2e` construit l'artefact puis réutilise le serveur déjà
-  présent sur le port attendu (`reuseExistingServer`). Les trois fichiers qui dépendent du serveur
-  commun sont alors servis par ce qui occupe ce port, et non par ce qui vient d'être construit : sur
-  un poste où la pile Docker sert une image antérieure, la porte est rouge pour cette seule raison,
-  dix échecs mesurés. Les quatre fichiers autonomes, eux, servent l'artefact du dépôt sur un port
-  libre. Reste à trancher : étendre ce montage aux trois derniers, ou refuser de réutiliser un
-  serveur dont rien ne prouve qu'il sert l'artefact courant.
-- Fait d'exploitation, et non défaut de code : la porte de bout en bout est rouge tant qu'un service
-  étranger occupe le port 3000. Trois des sept fichiers — `public-home`, `auth-entry-point` et
-  `security-headers` — dépendent légitimement du serveur commun, servi sur ce port. Hors intégration
-  continue, Playwright réutilise ce qui s'y trouve et éprouve donc une autre application ; en
-  intégration continue, il refuse de démarrer et pas un test ne s'exécute. Mesuré sur le poste de
-  référence : le conteneur `appui-feux-app` de la pile Docker locale y sert une autre base de code,
-  et la suite entière est verte — 135 tests passés, 1 sauté — dès que la porte ne rend plus son
-  verdict sur lui. Aucun fichier du dépôt n'en avertissait ; la procédure est désormais écrite dans
-  `README.md`, porte de qualité 5. La question de fond reste celle de la limite précédente :
-  réutiliser un serveur dont rien ne prouve qu'il sert l'artefact courant.
+- `tests/e2e/public-home.spec.ts`, « propose un accès aux conditions d'utilisation », s'est montré
+  instable une fois sur la suite complète en intégration continue — un seul travailleur, sept
+  fichiers, dont quatre montant leur propre serveur — puis vert à la reprise. Non reproduit en
+  isolation, trois essais sur trois. Les reprises automatiques le rendront invisible : c'est
+  précisément pourquoi il est écrit ici. Reste à trancher : mesurer la contention entre les serveurs
+  simultanés, ou desserrer l'attente de ce test.
+- Les quatre fichiers autonomes servent l'artefact du dépôt sur un port libre qu'ils choisissent
+  eux-mêmes, et vérifient qu'il est plus récent que les sources avant de rendre un verdict ; les
+  trois qui dépendent du serveur commun n'ont pas cette garde. Le port dédié et le refus de
+  réutilisation ferment le cas mesuré — un serveur étranger sur le port applicatif —, non celui d'un
+  artefact construit avant une modification puis servi tel quel. `npm run test:e2e` construit
+  d'abord, ce qui suffit tant que la porte est lancée par cette commande. Reste à trancher :
+  étendre la garde de fraîcheur aux trois derniers fichiers.
 - `next.config.ts` déclare `output: 'standalone'`, dont le point d'entrée est
   `.next/standalone/server.js`, alors que les sept fichiers de bout en bout éprouvent `next start` :
   les trois qui dépendent du serveur commun par `npm run start`, les quatre autonomes en le lançant

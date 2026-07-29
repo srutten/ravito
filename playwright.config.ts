@@ -3,8 +3,39 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
-const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+/**
+ * PORT DÉDIÉ À LA PORTE DE BOUT EN BOUT, et non le port applicatif habituel.
+ *
+ * POURQUOI 3210 ET NON 3000. Le serveur commun écoutait sur le port que prend par défaut la pile
+ * Docker de ce dépôt, et avec elle tout autre projet Node du poste. Les deux issues étaient
+ * mauvaises : hors intégration continue, Playwright RÉUTILISAIT ce qui s'y trouvait — mesuré sur le
+ * poste de référence, un conteneur servant une autre base de code, donc un verdict rendu sur une
+ * autre application ; en intégration continue, il refusait de démarrer et pas un test ne
+ * s'exécutait. Un port qui n'est le défaut de personne retire la collision au lieu de la
+ * documenter.
+ *
+ * `E2E_PORT` déplace ce port. `E2E_BASE_URL` vise une adresse entière, y compris distante : à
+ * combiner alors avec `E2E_SHARED_SERVER=off`, puisque le serveur y est déjà monté par l'opérateur.
+ */
+const e2ePort = process.env.E2E_PORT ?? '3210';
+const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${e2ePort}`;
 const isCI = Boolean(process.env.CI);
+
+/**
+ * Port réellement écouté par le serveur commun, LU SUR `baseURL` et non sur `E2E_PORT`.
+ *
+ * Les deux ne peuvent ainsi jamais diverger : donner `E2E_BASE_URL` sans `E2E_PORT` ferait sinon
+ * écouter le serveur sur 3210 pendant que Playwright interrogerait une autre adresse, et la
+ * commande expirerait au bout de deux minutes sur une erreur qui ne désigne pas sa cause.
+ */
+function sharedServerPort(): string {
+  try {
+    const declared = new URL(baseURL).port;
+    return declared === '' ? e2ePort : declared;
+  } catch {
+    return e2ePort;
+  }
+}
 
 /** Résolu depuis ce fichier et non depuis le dossier courant du lanceur. */
 export const E2E_DIRECTORY = path.join(
@@ -162,8 +193,16 @@ function sharedServerRequired(): boolean {
 
 const sharedWebServer = {
   command: 'npm run start',
+  // `next start` lit `PORT` : sans cette ligne, le serveur écouterait sur son port par défaut
+  // pendant que Playwright interrogerait le port dédié.
+  env: { PORT: sharedServerPort() },
   url: baseURL,
-  reuseExistingServer: !isCI,
+  // AUCUNE RÉUTILISATION, MÊME EN LOCAL. Sur un port dédié, ce qui répond déjà ne peut être qu'un
+  // serveur oublié par une exécution précédente, donc servant un artefact antérieur — précisément
+  // le verdict faux que ce port dédié supprime. Un échec bruyant « port déjà utilisé » vaut mieux
+  // qu'une suite verte rendue sur du code qui n'est plus le nôtre. Pour viser un serveur monté à la
+  // main, `E2E_BASE_URL` avec `E2E_SHARED_SERVER=off`.
+  reuseExistingServer: false,
   timeout: 120_000,
 };
 
