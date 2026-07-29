@@ -6,12 +6,9 @@
 -- @story: US-012, US-013
 -- @tables: organizations
 -- @requiert-blocs: aucun
--- @etat: inactif
+-- @etat: actif
 --
--- Bloc PRÉPARÉ, INACTIF au lot 0 : la table `organizations` n'existe pas
--- encore. `npm run db:seed` détecte son absence et ignore ce fichier en
--- l'annonçant. Il s'exécutera de lui-même, sans modification de `seed.ts`, dès
--- que la migration du lot 1 aura créé la table.
+-- Bloc ACTIF depuis le lot 1 : la migration 0015 a créé `organizations`.
 --
 -- Contenu : les quatre organisations de docs/seed-data.md, dont une en attente
 -- de validation, qui sert à démontrer le refus par défaut de docs/permissions.md
@@ -22,13 +19,37 @@
 -- rend toute confusion impossible et qui ne peut correspondre à aucun SIRET
 -- (14 chiffres). `territory_code` utilise le préfixe `ZZ`, non attribué.
 --
--- À RÉCONCILIER AU LOT 1 (US-012) : le vocabulaire de `type`,
--- `verification_status` et `status` n'est fixé ni par docs/domain-model.md ni
--- par les types énumérés du lot 0 (`0004_shared-enums.sql` ne couvre que les
--- quatre machines à états). Les valeurs ci-dessous sont des hypothèses lisibles.
--- La migration qui crée la table fait foi : ce fichier doit être aligné sur elle
--- au moment où le bloc s'active. En cas d'écart, `npm run db:seed` nomme le bloc
--- et la colonne en cause plutôt que d'échouer en bloc.
+-- ---------------------------------------------------------------------------
+-- VOCABULAIRE RÉCONCILIÉ AU LOT 1 (US-012), MIGRATIONS 0014 ET 0015
+-- ---------------------------------------------------------------------------
+-- Ce bloc a été écrit au lot 0, AVANT que le vocabulaire n'existe, avec des
+-- valeurs qui étaient des hypothèses lisibles. La migration 0014 l'a arrêté, et
+-- ce fichier est aligné sur elle. Quatre écarts ont dû être corrigés ; ils sont
+-- consignés ici parce que ce sont exactement les erreurs qu'un bloc préparé
+-- d'avance produit au moment où il s'active.
+--
+--   1. `type` : `FIRE_SERVICE` devient `OPERATIONAL_SERVICE`. Le référentiel
+--      fermé retient la nature générale — service d'incendie, service technique
+--      ou unité de sécurité civile — et non le seul cas qui avait servi
+--      d'exemple.
+--   2. `type` : `MUNICIPALITY` devient `LOCAL_AUTHORITY`. Une commune est un
+--      cas particulier de collectivité, pas la définition du type.
+--   3. `status` : la quatrième organisation portait `PENDING`, valeur qui
+--      n'existe PAS dans `organization_status` et qui aurait fait échouer ce
+--      bloc à son activation. Elle confondait deux axes que 0014 sépare : la
+--      VÉRIFICATION (`verification_status`, en attente) et le CYCLE DE VIE
+--      (`status`, actif). Les quatre organisations sont `ACTIVE` ; seule la
+--      quatrième est `PENDING` du point de vue de la vérification.
+--      C'est précisément le cas à démontrer : son administrateur peut
+--      travailler, mais toute action sensible doit lui être refusée par
+--      `ORGANIZATION_NOT_VERIFIED`, et non par un refus de connexion.
+--   4. `version` n'est pas écrite : la colonne existe depuis 0015 avec la
+--      valeur par défaut 1, et l'écrire à la main ferait croire qu'un
+--      verrouillage optimiste a déjà eu lieu.
+--
+-- `registration_number` est stocké tel quel ; l'unicité porte sur sa forme
+-- NORMALISÉE, calculée par 0015 (majuscules, séparateurs retirés), soit ici
+-- `FICTIFORG0001` à `FICTIFORG0004`.
 -- =============================================================================
 
 INSERT INTO public.organizations (
@@ -45,7 +66,7 @@ VALUES
   (
     '00000001-0000-4000-8000-000000000001',
     'Service incendie territorial',
-    'FIRE_SERVICE',
+    'OPERATIONAL_SERVICE',
     'FICTIF-ORG-0001',
     'ZZ-DEMO-01',
     'VERIFIED',
@@ -54,7 +75,7 @@ VALUES
   (
     '00000001-0000-4000-8000-000000000002',
     'Commune de démonstration',
-    'MUNICIPALITY',
+    'LOCAL_AUTHORITY',
     'FICTIF-ORG-0002',
     'ZZ-DEMO-01',
     'VERIFIED',
@@ -69,8 +90,9 @@ VALUES
     'VERIFIED',
     'ACTIVE'
   ),
-  -- En attente : aucune de ses ressources ne porte de mission dans le jeu, ce
-  -- qui illustre la condition de validation sans avoir besoin d'un test.
+  -- En attente de vérification, mais bien active : aucune de ses ressources ne
+  -- porte de mission dans le jeu, ce qui illustre la condition de validation
+  -- sans avoir besoin d'un test. Voir l'écart 3 de l'en-tête.
   (
     '00000001-0000-4000-8000-000000000004',
     'Travaux Publics Horizon',
@@ -78,6 +100,6 @@ VALUES
     'FICTIF-ORG-0004',
     'ZZ-DEMO-02',
     'PENDING',
-    'PENDING'
+    'ACTIVE'
   )
 ON CONFLICT (id) DO NOTHING;

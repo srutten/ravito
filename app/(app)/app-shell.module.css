@@ -1,0 +1,99 @@
+/*
+ * Coquille des écrans connectés. Mobile d'abord : une seule colonne, navigation en ligne qui
+ * défile horizontalement si les libellés dépassent, plutôt qu'un menu replié qui exigerait un
+ * appui de plus pour atteindre la seule action disponible.
+ */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Hauteur réellement visible sur mobile, barres du navigateur comprises. */
+@supports (min-height: 100svh) {
+  .shell {
+    min-height: 100svh;
+  }
+}
+
+.header {
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headerInner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--layout-gutter);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  text-decoration: none;
+  /* Cible tactile confortable, au-delà des 44 pixels de docs/screens.md. */
+  min-height: var(--target-min);
+}
+
+.wordmark {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+/*
+ * Défilement horizontal plutôt que retour à la ligne : sur un téléphone étroit, trois libellés
+ * explicites tiennent rarement sur une ligne, et les tronquer rendrait la destination illisible.
+ */
+.nav {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  scrollbar-width: thin;
+}
+
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navLink:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.main {
+  flex: 1 1 auto;
+}
+
+.main:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -3px;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-7) var(--layout-gutter) var(--space-9);
+}

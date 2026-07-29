@@ -173,6 +173,15 @@ export function MailIcon(props: IconProps) {
   );
 }
 
+/** Chevron des listes déroulantes. Décoratif : le sens vient du libellé du champ. */
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <svg {...BASE_PROPS} {...props} aria-hidden="true">
+      <path d="m6.5 9.5 5.5 5.4 5.5-5.4" />
+    </svg>
+  );
+}
+
 export function ArrowLeftIcon(props: IconProps) {
   return (
     <svg {...BASE_PROPS} {...props} aria-hidden="true">

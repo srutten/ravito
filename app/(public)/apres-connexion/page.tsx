@@ -3,7 +3,10 @@ import { redirect } from 'next/navigation';
 import { getCurrentSession } from '@/authorization';
 import { ContentPage } from '@/components/layout/content-page';
 import { Alert } from '@/components/ui/alert';
+import { LinkButton } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ShieldIcon } from '@/components/ui/icons';
+import { isPlatformAdministrator } from '@/domain/organizations';
 import { messages } from '@/i18n/fr';
 import styles from './apres-connexion.module.css';
 import { SessionActions } from './session-actions';
@@ -34,6 +37,8 @@ export const metadata: Metadata = {
 };
 
 const SIGN_IN_PATH = '/connexion';
+const NEW_ORGANIZATION_PATH = '/organisations/nouvelle';
+const PENDING_ORGANIZATIONS_PATH = '/administration/organisations-en-attente';
 
 const labels = messages.ui.postSignIn;
 
@@ -57,6 +62,9 @@ export default async function ApresConnexionPage() {
   if (session === null) {
     redirect(SIGN_IN_PATH);
   }
+
+  // Relue à chaque requête, jamais mise en cache (ADR-021).
+  const isAdministrator = await isPlatformAdministrator(session.userId);
 
   return (
     <ContentPage title={labels.pageTitle} description={labels.description}>
@@ -98,6 +106,35 @@ export default async function ApresConnexionPage() {
             </dd>
           </div>
         </dl>
+      </Card>
+
+      {/*
+        POINT D'ENTRÉE VERS LES ÉCRANS CONNECTÉS, ajouté au lot organisations.
+        Les liens ne sont pas un contrôle d'accès : chaque écran et chaque route refont le
+        contrôle de session et de rôle. Le lien d'administration n'apparaît que pour un
+        administrateur plateforme, par honnêteté d'interface — un lien qui mène à un refus fait
+        croire à une panne, et apprend au passage qu'un écran existe.
+      */}
+      <Card
+        title={labels.workspacesTitle}
+        description={labels.workspacesDescription}
+        titleLevel={2}
+      >
+        <div className={styles.actions} data-testid="acces-organisations">
+          <LinkButton href={NEW_ORGANIZATION_PATH} variant="primary" fullWidth>
+            {messages.ui.appShell.newOrganization}
+          </LinkButton>
+          {isAdministrator ? (
+            <LinkButton
+              href={PENDING_ORGANIZATIONS_PATH}
+              variant="secondary"
+              fullWidth
+              icon={<ShieldIcon width={20} height={20} />}
+            >
+              {messages.ui.appShell.pendingOrganizations}
+            </LinkButton>
+          ) : null}
+        </div>
       </Card>
 
       <Alert tone="info" title={labels.noticeTitle}>

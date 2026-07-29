@@ -1,0 +1,75 @@
+/*
+ * File d'administration. Une carte par organisation plutôt qu'un tableau : sur un téléphone, un
+ * tableau à six colonnes se lit en défilement horizontal, et une décision de validation se prend
+ * en lisant une fiche entière, pas une ligne tronquée.
+ */
+
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.count {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.lastLoaded {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.loading {
+  padding: var(--space-4) 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+/*
+ * Libellé au-dessus de la valeur : le numéro d'immatriculation doit rester lisible d'un seul
+ * tenant pour être comparé à un registre public, et deux colonnes le couperaient sur un écran
+ * étroit.
+ */
+.detailRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.term {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.value {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}

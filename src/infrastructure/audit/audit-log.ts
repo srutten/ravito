@@ -31,7 +31,19 @@ export type AuditAction =
   /** Révocation de toutes les sessions d'un compte. */
   | 'USER_SESSIONS_REVOKED'
   /** Franchissement d'un seuil de limitation de tentatives. */
-  | 'SIGN_IN_BLOCKED';
+  | 'SIGN_IN_BLOCKED'
+  /** Déclaration d'une organisation, en attente de vérification (US-012). */
+  | 'ORGANIZATION_CREATED'
+  /** Modification d'une fiche d'organisation, `before`/`after` réduits aux champs modifiés. */
+  | 'ORGANIZATION_UPDATED'
+  /**
+   * Retombée de la vérification consécutive à un changement d'identité. Ligne DISTINCTE de
+   * `ORGANIZATION_UPDATED` : la modification et la perte de confiance sont deux faits, et
+   * les confondre rendrait impossible de compter les secondes sans relire les premières.
+   */
+  | 'ORGANIZATION_VERIFICATION_RESET'
+  /** Rattachement d'une personne à une organisation, avec son rôle (US-012, US-014). */
+  | 'ORGANIZATION_MEMBER_ADDED';
 
 /**
  * Types de cible du lot 1.
@@ -41,7 +53,14 @@ export type AuditAction =
  * « UserProfile » échoue, avec un message qui ne dit pas pourquoi (voir « Convention de
  * casse » dans supabase/README.md).
  */
-export type AuditTargetType = 'USER_PROFILE' | 'SESSION' | 'AUTH_CHALLENGE';
+export type AuditTargetType =
+  | 'USER_PROFILE'
+  | 'SESSION'
+  | 'AUTH_CHALLENGE'
+  /** Entité `Organization` de docs/domain-model.md. Jamais « Organization ». */
+  | 'ORGANIZATION'
+  /** Entité `OrganizationMember`. Jamais « OrganizationMember » ni « ORGANIZATION-MEMBER ». */
+  | 'ORGANIZATION_MEMBER';
 
 export interface AuditLogEntry {
   readonly action: AuditAction;
@@ -51,10 +70,14 @@ export interface AuditLogEntry {
   /** `null` pour une action non authentifiée ou décidée par le système. */
   readonly actorUserId: string | null;
   /**
-   * `null` au lot 1 : `organization_members` n'existe pas encore (US-012, US-014). La
-   * colonne existe pour porter le filtrage par organisation de `docs/permissions.md` ;
-   * le lot qui crée l'appartenance devra la renseigner, sans quoi un admin
-   * d'organisation ne verra jamais les lignes de son organisation.
+   * Organisation au nom de laquelle l'acteur agit, FIGÉE à l'écriture et jamais recalculée
+   * depuis l'appartenance courante, qui peut avoir changé depuis (0006_audit-logs.sql).
+   * Elle porte le filtrage par organisation de `docs/permissions.md` : sans elle, un admin
+   * d'organisation ne verrait jamais les lignes de son organisation.
+   *
+   * Renseignée depuis US-012, `organization_members` existant à partir de `0016`. Reste
+   * `null` pour les actions d'identité, qui n'ont pas d'organisation : une session
+   * s'ouvre avant toute appartenance.
    */
   readonly actorOrganizationId?: string | null;
   readonly before?: Record<string, unknown> | null;

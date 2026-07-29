@@ -1,10 +1,12 @@
 import { type ChildProcessByStdio, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import { expect, test } from '@playwright/test';
 import pg from 'pg';
+import { E2E_DIRECTORY, SELF_HOSTED_SPECS } from '../../playwright.config';
 import { loadIntegrationEnvironment, repositoryRoot } from '../integration/setup/environment';
 
 /**
@@ -26,28 +28,61 @@ import { loadIntegrationEnvironment, repositoryRoot } from '../integration/setup
  *    sur l'artefact de production que ni le jeton de session ni l'adresse complète n'y figurent.
  *
  * Le serveur de `playwright.config.ts` ne convient pas : sa sortie n'est pas accessible aux tests.
- * Celui-ci écoute sur un port libre, sert le MÊME artefact `.next`, et est arrêté à la fin.
+ * Celui-ci écoute sur un port libre, sert le MÊME artefact `.next`, et est arrêté à la fin. Ce
+ * fichier doit donc figurer dans `SELF_HOSTED_SPECS` — ce que le dernier groupe de tests vérifie,
+ * pour lui-même comme pour ses voisins.
  *
- * ÉTAT LAISSÉ EN L'ÉTAT. Le compte de test, ses sessions, ses défis, ses compteurs de tentatives et
- * ses lignes d'audit sont supprimés à la fin. La suppression des lignes d'audit passe par
- * l'échappement de rétention prévu par `0006_audit-logs.sql` — le déclencheur d'immuabilité refuse
- * tout le reste.
+ * ÉTAT LAISSÉ EN L'ÉTAT, ET UNIQUEMENT LE SIEN. Le compte de test, ses sessions, ses défis, ses
+ * compteurs de tentatives et ses lignes d'audit sont supprimés à la fin. AUCUN PRÉDICAT DE PURGE
+ * N'EST TEMPOREL : ils désignent tous les lignes de cette exécution, par identifiant ou par
+ * empreinte de sujet. Ce qui a été mesuré avec un prédicat temporel est écrit devant `purgeRun`.
  */
 
 /**
- * EXÉCUTION EN SÉRIE, DANS UN SEUL TRAVAILLEUR. Les tests de ce fichier partagent un serveur, un
+ * EXÉCUTION EN SÉRIE, DANS UN SEUL TRAVAILLEUR. Les tests du parcours partagent un serveur, un
  * compte et une sortie de journal, tous montés par `beforeAll`. En parallèle, Playwright
  * répartirait les tests sur plusieurs travailleurs, chacun rejouant `beforeAll` : autant de
  * serveurs, autant de comptes, et le dernier test — qui relit le journal du parcours entier — ne
  * verrait qu'un journal vide.
+ *
+ * La configuration est posée SUR LE GROUPE et non sur le fichier : le garde-fou de configuration,
+ * en fin de fichier, ne dépend ni du serveur ni de la base, et n'a aucune raison d'être privé
+ * d'exécution parce qu'un test du parcours a échoué avant lui.
  */
-test.describe.configure({ mode: 'serial' });
 
 const AUTH_SECRET = 'secret-e2e-fictif-de-plus-de-32-caracteres-pour-les-essais';
 const SERVER_READY_TIMEOUT_MS = 120_000;
 
 /** Repère du parcours : la partie locale est unique et ne survit à aucun masquage. */
 const IDENTIFIER_PREFIX = 'sentinelle-e2e';
+
+/**
+ * MIROIR DES EMPREINTES DE `src/domain/identity/hashing.ts`.
+ *
+ * POURQUOI CE MIROIR EXISTE. Les tables `auth_challenges` et `auth_attempts` ne portent aucune
+ * valeur en clair : l'identifiant et le sujet limité y sont des HMAC, par construction. Un test
+ * qui ne sait pas les recalculer ne peut désigner ses propres lignes que par le temps — et un
+ * prédicat temporel emporte les lignes des voisins. Le serveur lancé plus bas reçoit `AUTH_SECRET`
+ * de ce fichier : la clé est donc connue ici, et les empreintes sont reproductibles.
+ *
+ * CE MIROIR EST GARDÉ. Si les étiquettes de domaine ou le séparateur changeaient dans la
+ * production, la purge cesserait silencieusement de désigner quoi que ce soit. Le test de blocage
+ * relit la ligne de compteur ET la ligne d'audit PAR CETTE EMPREINTE : une dérive rend le test
+ * rouge au lieu de laisser des restes en base.
+ */
+const HASH_FIELD_SEPARATOR = '\u0000';
+const DOMAIN_IDENTIFIER = 'appui-feux:identity:identifier:v1';
+const DOMAIN_ATTEMPT_SUBJECT = 'appui-feux:identity:attempt-subject:v1';
+
+/** Chemins protégés par un compteur, au sens de `AttemptPolicy.purpose`. */
+const ATTEMPT_PURPOSES = ['sign-in-request', 'sign-in-verify'] as const;
+
+/**
+ * Marqueur d'un fichier qui monte son propre serveur : le lancement effectif de `next start` par
+ * un processus enfant. Le motif exige la COMMANDE et non une mention du sujet, pour qu'un fichier
+ * qui se contente de parler du serveur commun dans son en-tête ne soit pas compté comme autonome.
+ */
+const SELF_HOSTED_SERVER_PATTERN = /spawn\(\s*process\.execPath\s*,\s*\[[^\]]*'start'/;
 
 /** Sorties toujours redirigées, entrée jamais : c'est ce que `stdio` déclare ci-dessous. */
 type ServerProcess = ChildProcessByStdio<null, Readable, Readable>;
@@ -62,7 +97,100 @@ let server: ServerHandle | undefined;
 let client: pg.Client | undefined;
 let email = '';
 let userId = '';
-let startedAt = new Date();
+
+/**
+ * Adresse d'appel DÉCLARÉE par ce fichier, unique à chaque exécution.
+ *
+ * POURQUOI CE FICHIER SE DONNE UNE SOURCE À LUI, ET CE QUE COÛTAIT LE CONTRAIRE. La limitation
+ * `REQUEST_CODE_BY_SOURCE` (`src/domain/identity/policy.ts`) tolère 20 demandes de code par
+ * quinze minutes sur la dimension « source ». Sans en-tête déclaré par l'appelant, `next start`
+ * pose lui-même `X-Forwarded-For` avec l'adresse de la connexion : mesuré, le sujet compté vaut
+ * alors `::ffff:127.0.0.1` — l'ADRESSE DE BOUCLAGE, la même pour les deux projets Playwright, qui
+ * tournent en parallèle, et pour toutes les exécutions successives du quart d'heure. Ce fichier
+ * demande à lui seul treize codes par projet, soit vingt-six sur un plafond de vingt. Le test de
+ * blocage ci-dessous exige cinq réponses 202 CONSÉCUTIVES avant de provoquer le refus : il
+ * échouait deux fois sur cinq, non parce que le blocage manquait, mais parce qu'un blocage
+ * ÉTRANGER — celui de la source — arrivait trop tôt. Vérifié par inversion : compteur de bouclage
+ * saturé et en-tête retiré, le premier appel de ce test reçoit 429 au lieu de 202 ; en-tête
+ * rétabli, le fichier entier passe et le compteur saturé reste intact, à vingt et un.
+ *
+ * LA LIMITE DE PRODUCTION N'EST PAS DESSERRÉE, ET AUCUN COMPTEUR VOISIN N'EST REMIS À ZÉRO. Ce
+ * fichier déclare une source qui n'appartient qu'à lui, dans le préfixe de documentation
+ * `2001:db8::/32` (RFC 3849). La lecture de `X-Forwarded-For` est le comportement de production,
+ * documenté comme tel dans `app/api/v1/auth/_shared/auth-route.ts` ; le test ne fait que s'en
+ * servir pour s'isoler, au lieu d'effacer le compteur qu'un fichier voisin est peut-être en train
+ * d'éprouver — ce qu'un nettoyage temporel, lui, fait sans le dire.
+ *
+ * La dimension réellement éprouvée par le test de blocage reste celle par IDENTIFIANT, qui, elle,
+ * ne dépend d'aucun en-tête.
+ */
+let sourceAddress = '';
+
+/** Empreintes d'identifiant à retirer de `auth_challenges`. */
+const challengeIdentifierHashes: string[] = [];
+
+/**
+ * Empreintes de sujet à retirer de `auth_attempts`, et citées par les lignes d'audit
+ * `SIGN_IN_BLOCKED` que ce fichier peut provoquer.
+ */
+const attemptSubjectHashes: string[] = [];
+
+function hmacHex(domain: string, value: string): string {
+  return createHmac('sha256', AUTH_SECRET)
+    .update(`${domain}${HASH_FIELD_SEPARATOR}${value}`)
+    .digest('hex');
+}
+
+function attemptSubjectHash(dimension: string, purpose: string, subject: string): string {
+  return hmacHex(
+    DOMAIN_ATTEMPT_SUBJECT,
+    `${dimension}${HASH_FIELD_SEPARATOR}${purpose}${HASH_FIELD_SEPARATOR}${subject}`,
+  );
+}
+
+/**
+ * Enregistre un identifiant employé par ce fichier et rend sa forme normalisée.
+ *
+ * TOUT IDENTIFIANT PASSE PAR ICI, y compris ceux qui n'existent en base sous aucun compte : c'est
+ * ce qui rend la purge finale EXHAUSTIVE par construction, plutôt que dépendante d'une liste tenue
+ * à la main qu'un test ajouté demain oublierait de compléter.
+ *
+ * LES DEUX CHEMINS NE LIMITENT PAS LE MÊME SUJET, et l'écart se manque facilement.
+ * `request-sign-in-code.ts` compte sur l'identifiant NORMALISÉ ; `verify-sign-in-code.ts` compte
+ * sur son EMPREINTE, la valeur déjà hachée qui sert de clé au défi. Les deux formes sont donc
+ * enregistrées. Mesuré avec la seule première : le refus de code du test « refuse un code erroné »
+ * laissait derrière lui une ligne de compteur que la purge ne désignait pas.
+ */
+function trackIdentifier(normalized: string): string {
+  const identifierHash = hmacHex(DOMAIN_IDENTIFIER, normalized);
+  challengeIdentifierHashes.push(identifierHash);
+  attemptSubjectHashes.push(
+    attemptSubjectHash('identifier', 'sign-in-request', normalized),
+    attemptSubjectHash('identifier', 'sign-in-verify', identifierHash),
+  );
+  return normalized;
+}
+
+/** Adresse jetable, propre à un test, déjà enregistrée pour la purge. */
+function disposableIdentifier(label: string): string {
+  return trackIdentifier(`${IDENTIFIER_PREFIX}-${label}-${randomUUID().slice(0, 8)}@exemple.test`);
+}
+
+/** En-tête qui rattache un appel à la source déclarée par ce fichier. */
+function sourceHeaders(): Record<string, string> {
+  return { 'x-forwarded-for': sourceAddress };
+}
+
+async function selectRows<Row extends pg.QueryResultRow>(
+  sql: string,
+  values: readonly unknown[],
+): Promise<Row[]> {
+  if (client === undefined) {
+    throw new Error("client PostgreSQL non connecte : le montage du fichier n'a pas abouti");
+  }
+  const { rows } = await client.query<Row>(sql, [...values]);
+  return rows;
+}
 
 async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -103,7 +231,8 @@ async function waitForServer(baseUrl: string, child: ServerProcess): Promise<voi
  * Les variables passées ici l'emportent sur `.env.local` : `@next/env` n'écrase jamais une valeur
  * déjà présente dans l'environnement du processus. `AUTH_SECRET` est fixé pour que les empreintes
  * restent stables — sans lui, le serveur engendrerait une clé éphémère et les défis émis avant un
- * redémarrage deviendraient invérifiables.
+ * redémarrage deviendraient invérifiables, et la purge nominative de ce fichier ne saurait plus
+ * recalculer une seule empreinte.
  */
 async function startServer(databaseUrl: string): Promise<ServerHandle> {
   const port = await findFreePort();
@@ -158,6 +287,56 @@ async function stopServer(handle: ServerHandle): Promise<void> {
 }
 
 /**
+ * Retire de la base tout ce que cette exécution y a laissé, et RIEN D'AUTRE.
+ *
+ * CE QUE LES PRÉDICATS TEMPORELS COÛTAIENT, MESURÉ. La purge d'audit portait
+ * `or recorded_at >= $2` : au `afterAll` de ce fichier — qui finit tôt, vers vingt-cinq secondes —
+ * elle effaçait TOUTES les lignes écrites depuis son `beforeAll`, y compris les
+ * `ORGANIZATION_CREATED` et `ORGANIZATION_MEMBER_ADDED` que `organizations.spec.ts` venait
+ * d'écrire. Deux tests voisins échouaient, et le mode série privait dix autres d'exécution. Le
+ * nettoyage des compteurs, lui, filtrait sur `created_at` alors que `auth_attempts` porte une
+ * LIGNE UNIQUE PAR SUJET, réutilisée d'une exécution à l'autre : son `created_at` est celui de la
+ * première exécution de la journée, et le filtre ne retirait donc rien de ce que les suivantes
+ * avaient incrémenté.
+ *
+ * TOUT EST DONC NOMINATIF ICI. Le compte par son identifiant, les défis et les compteurs par les
+ * empreintes que ce fichier sait recalculer, les lignes d'audit par l'acteur, la cible, ou
+ * l'empreinte de sujet qu'elles citent. Une exécution voisine peut se dérouler pendant celle-ci
+ * sans qu'aucune de ses lignes ne soit désignée.
+ *
+ * L'ORDRE COMPTE. Le profil part en premier et emporte ses sessions et ses défis par cascade ;
+ * `audit_logs` n'a AUCUNE clé étrangère vers `user_profiles` (0006, volontairement : le journal
+ * doit survivre à l'effacement d'un compte), donc `actor_user_id` reste renseigné après la
+ * suppression du profil et le prédicat nominatif désigne encore les lignes.
+ */
+async function purgeRun(): Promise<void> {
+  if (client === undefined) {
+    return;
+  }
+  if (userId !== '') {
+    await client.query('delete from public.user_profiles where id = $1', [userId]);
+  }
+  // Les défis créés pour les adresses SANS COMPTE ne sont rattachés à aucun profil — c'est
+  // exactement ce que le critère 7 exige — donc aucune cascade ne les emporte.
+  await client.query('delete from public.auth_challenges where identifier_hash = any($1::text[])', [
+    challengeIdentifierHashes,
+  ]);
+  await client.query('delete from public.auth_attempts where subject_hash = any($1::text[])', [
+    attemptSubjectHashes,
+  ]);
+  // Le journal d'audit est immuable : seul l'échappement de rétention prévu par la migration
+  // 0006 permet de retirer les lignes produites par ce test.
+  await client.query("select set_config('appui_feux.audit_purge', 'on', false)");
+  await client.query(
+    `delete from public.audit_logs
+      where actor_user_id = $1
+         or target_id = $1
+         or (after ->> 'subjectHash') = any($2::text[])`,
+    [userId === '' ? null : userId, attemptSubjectHashes],
+  );
+}
+
+/**
  * Lit le code remis par l'adaptateur de journalisation.
  *
  * La ligne recherchée est celle de `LoggingCodeDelivery`, qui porte `signInCode` et un
@@ -186,61 +365,6 @@ async function readDeliveredCode(handle: ServerHandle, since: number): Promise<s
   throw new Error("aucun code de connexion n'a été journalisé par le serveur");
 }
 
-test.beforeAll(
-  // biome-ignore lint/correctness/noEmptyPattern: Playwright impose un motif de destructuration en premier parametre, seul `info` est utilise ici.
-  async ({}, info) => {
-    test.setTimeout(180_000);
-    const environment = loadIntegrationEnvironment();
-    const databaseUrl = environment.DATABASE_URL;
-    if (databaseUrl === undefined || databaseUrl.trim() === '') {
-      throw new Error('DATABASE_URL est absente : le parcours de connexion exige une base réelle.');
-    }
-
-    startedAt = new Date();
-    client = new pg.Client({ connectionString: databaseUrl });
-    await client.connect();
-
-    // Adresse unique par projet Playwright : les projets mobile et bureau tournent en parallèle et
-    // ne doivent pas se disputer le même compte ni le même compteur de tentatives.
-    email = `${IDENTIFIER_PREFIX}-${info.project.name}-${randomUUID().slice(0, 8)}@exemple.test`;
-    const { rows } = await client.query<{ readonly id: string }>(
-      `insert into public.user_profiles (display_name, email, preferred_language, verification_level, status)
-     values ('Camille Dubois', $1, 'fr', 'CONTACT_VERIFIED', 'ACTIVE')
-     returning id`,
-      [email],
-    );
-    userId = rows[0]?.id ?? '';
-
-    server = await startServer(databaseUrl);
-  },
-);
-
-test.afterAll(async () => {
-  if (server !== undefined) {
-    await stopServer(server);
-  }
-  if (client !== undefined) {
-    // La suppression du profil emporte ses sessions et ses défis (ON DELETE CASCADE).
-    await client.query('delete from public.user_profiles where id = $1', [userId]);
-    // Les défis créés pour les adresses SANS COMPTE ne sont rattachés à aucun profil — c'est
-    // exactement ce que le critère 7 exige — donc aucune cascade ne les emporte. Sans cette
-    // ligne, chaque exécution laisserait derrière elle les défis de neutralité.
-    await client.query(
-      'delete from public.auth_challenges where user_profile_id is null and created_at >= $1',
-      [startedAt],
-    );
-    await client.query('delete from public.auth_attempts where created_at >= $1', [startedAt]);
-    // Le journal d'audit est immuable : seul l'échappement de rétention prévu par la migration
-    // 0006 permet de retirer les lignes produites par ce test.
-    await client.query("select set_config('appui_feux.audit_purge', 'on', false)");
-    await client.query(
-      'delete from public.audit_logs where actor_user_id = $1 or target_id = $1 or recorded_at >= $2',
-      [userId, startedAt],
-    );
-    await client.end();
-  }
-});
-
 function requireServer(): ServerHandle {
   if (server === undefined) {
     throw new Error('serveur de test non démarré');
@@ -249,6 +373,66 @@ function requireServer(): ServerHandle {
 }
 
 test.describe('parcours de connexion', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(
+    // biome-ignore lint/correctness/noEmptyPattern: Playwright impose un motif de destructuration en premier parametre, seul `info` est utilise ici.
+    async ({}, info) => {
+      test.setTimeout(180_000);
+      const environment = loadIntegrationEnvironment();
+      const databaseUrl = environment.DATABASE_URL;
+      if (databaseUrl === undefined || databaseUrl.trim() === '') {
+        throw new Error(
+          'DATABASE_URL est absente : le parcours de connexion exige une base réelle.',
+        );
+      }
+
+      client = new pg.Client({ connectionString: databaseUrl });
+      await client.connect();
+
+      // Source unique par exécution ET par projet : mobile et bureau tournent en parallèle et ne
+      // doivent pas se partager un budget de vingt demandes. Deux groupes de quatre chiffres
+      // hexadécimaux tirés au hasard, soit 2^32 possibilités : deux exécutions de la même minute
+      // ne se rencontrent pas.
+      const token = randomUUID().replaceAll('-', '');
+      sourceAddress = `2001:db8:${token.slice(0, 4)}:${token.slice(4, 8)}::1`;
+      for (const purpose of ATTEMPT_PURPOSES) {
+        attemptSubjectHashes.push(attemptSubjectHash('source', purpose, sourceAddress));
+      }
+
+      // Adresse unique par projet Playwright : les projets mobile et bureau tournent en parallèle
+      // et ne doivent pas se disputer le même compte ni le même compteur de tentatives.
+      email = trackIdentifier(
+        `${IDENTIFIER_PREFIX}-${info.project.name}-${randomUUID().slice(0, 8)}@exemple.test`,
+      );
+      const rows = await selectRows<{ readonly id: string }>(
+        `insert into public.user_profiles (display_name, email, preferred_language, verification_level, status)
+     values ('Camille Dubois', $1, 'fr', 'CONTACT_VERIFIED', 'ACTIVE')
+     returning id`,
+        [email],
+      );
+      userId = rows[0]?.id ?? '';
+
+      server = await startServer(databaseUrl);
+    },
+  );
+
+  test.afterAll(async () => {
+    if (server !== undefined) {
+      await stopServer(server);
+    }
+    if (client !== undefined) {
+      await purgeRun();
+      await client.end();
+    }
+  });
+
+  // La source déclarée vaut pour TOUTES les requêtes du navigateur, y compris la soumission du
+  // formulaire : l'isolement serait vain si seuls les appels d'API la portaient.
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders(sourceHeaders());
+  });
+
   test("présente l'écran de connexion conforme aux arbitrages de US-010", async ({ page }) => {
     const { baseUrl } = requireServer();
     await page.goto(`${baseUrl}/connexion`);
@@ -332,9 +516,7 @@ test.describe('parcours de connexion', () => {
     const { baseUrl } = requireServer();
     await page.goto(`${baseUrl}/connexion`);
 
-    await page
-      .getByTestId('champ-identifiant')
-      .fill(`${IDENTIFIER_PREFIX}-inconnu-${randomUUID().slice(0, 8)}@exemple.test`);
+    await page.getByTestId('champ-identifiant').fill(disposableIdentifier('inconnu'));
     await page.getByRole('button', { name: 'Recevoir un code' }).click();
 
     // Critère 7 vu depuis l'écran : rien ne distingue une adresse rattachée à un compte d'une
@@ -350,9 +532,7 @@ test.describe('parcours de connexion', () => {
     const handle = requireServer();
     await page.goto(`${handle.baseUrl}/connexion`);
 
-    await page
-      .getByTestId('champ-identifiant')
-      .fill(`${IDENTIFIER_PREFIX}-errone-${randomUUID().slice(0, 8)}@exemple.test`);
+    await page.getByTestId('champ-identifiant').fill(disposableIdentifier('errone'));
     await page.getByRole('button', { name: 'Recevoir un code' }).click();
     await expect(page.getByTestId('etape-code')).toBeVisible();
 
@@ -438,8 +618,9 @@ test.describe('parcours de connexion', () => {
     await page.context().clearCookies();
 
     // Deux sessions du même compte, sur deux contextes distincts : c'est la situation réelle d'un
-    // téléphone d'astreinte et d'un poste partagé.
-    const second = await browser.newContext();
+    // téléphone d'astreinte et d'un poste partagé. Le second contexte déclare la MÊME source que
+    // le premier : les deux appareils d'une même personne partagent son accès réseau.
+    const second = await browser.newContext({ extraHTTPHeaders: sourceHeaders() });
     const secondPage = await second.newPage();
     try {
       for (const target of [page, secondPage]) {
@@ -471,15 +652,22 @@ test.describe('parcours de connexion', () => {
 
   test('bloque temporairement après trop de demandes, et le dit', async ({ page }) => {
     const { baseUrl } = requireServer();
-    const blockedEmail = `${IDENTIFIER_PREFIX}-blocage-${randomUUID().slice(0, 8)}@exemple.test`;
+    const blockedEmail = disposableIdentifier('blocage');
 
     // Le seuil est atteint par l'API, pas par l'interface : cinq allers-retours dans le formulaire
     // testeraient l'enchaînement des étapes, pas le blocage, et rendraient le test tributaire de
     // l'état du bouton entre deux envois. L'appel passe par le contexte de la page, donc par la
     // même origine, et le sixième envoi est bien celui du formulaire.
+    //
+    // CINQ RÉPONSES 202 EXIGÉES, DONC CINQ RÉELLEMENT DISPONIBLES. La source déclarée par ce
+    // fichier n'appartient qu'à lui : les tests précédents lui ont coûté sept demandes, celles-ci
+    // sont la huitième à la treizième, et `REQUEST_CODE_BY_SOURCE` en tolère vingt. Le seul
+    // plafond que ces six appels puissent franchir est donc celui par identifiant — précisément
+    // celui qu'on éprouve. `REQUEST_CODE_BY_IDENTIFIER.maxAttempts` vaut cinq et désigne le nombre
+    // de tentatives TOLÉRÉES : les cinq premières passent, la sixième bloque.
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await page.request.post(`${baseUrl}/api/v1/auth/codes`, {
-        headers: { 'content-type': 'application/json', origin: baseUrl },
+        headers: { 'content-type': 'application/json', origin: baseUrl, ...sourceHeaders() },
         data: { identifier: blockedEmail },
       });
       expect(response.status()).toBe(202);
@@ -497,6 +685,46 @@ test.describe('parcours de connexion', () => {
       'Nouvelle tentative possible dans',
     );
     await expect(page.getByTestId('etape-code')).toHaveCount(0);
+
+    // L'ÉCRAN NE SUFFIT PAS À PROUVER LE BLOCAGE, ni à prouver que la purge saura retrouver ses
+    // lignes. Les trois assertions suivantes lisent la base PAR L'EMPREINTE recalculée ici — la
+    // même que celle dont `purgeRun` se sert. Vérifiées par inversion, en les jouant AVANT la
+    // sixième demande : le compteur rend 5, `blocked_until` est nul, le journal ne porte aucune
+    // ligne. Aucune des trois ne passe sans le blocage.
+    //
+    // Le compteur vaut SIX et non cinq, et l'écart n'est pas un détail : la sixième demande a été
+    // REFUSÉE, et elle est pourtant comptée. C'est ce que `docs/observability.md` demande — le
+    // compteur mesure l'intensité d'une campagne, pas seulement son déclenchement — et c'est aussi
+    // ce qui rend `justBlocked` exact, donc ce qui garantit UNE SEULE ligne d'audit. Un compteur
+    // gelé au seuil rendrait une rafale de mille tentatives indiscernable d'une de six.
+    const subjectHash = attemptSubjectHash('identifier', 'sign-in-request', blockedEmail);
+    const counters = await selectRows<{
+      readonly attempt_count: number;
+      readonly blocked: boolean;
+    }>(
+      `select attempt_count, blocked_until > now() as blocked
+         from public.auth_attempts
+        where subject_hash = $1`,
+      [subjectHash],
+    );
+    expect(
+      counters,
+      'aucun compteur pour l empreinte recalculee : le miroir de hachage de ce fichier a derive de src/domain/identity/hashing.ts, et la purge nominative ne designe plus rien',
+    ).toHaveLength(1);
+    expect(counters[0]?.attempt_count).toBe(6);
+    expect(counters[0]?.blocked).toBe(true);
+
+    // UNE SEULE ligne d'audit par franchissement de seuil : `docs/api-contract.md` interdit qu'un
+    // appelant non authentifié fasse grossir la table de preuve à volonté, et `docs/security.md`
+    // exige que la campagne laisse une trace. Les deux moitiés tiennent ensemble.
+    const audited = await selectRows<{ readonly count: string }>(
+      `select count(*)::text as count
+         from public.audit_logs
+        where action = 'SIGN_IN_BLOCKED'
+          and (after ->> 'subjectHash') = $1`,
+      [subjectHash],
+    );
+    expect(audited[0]?.count).toBe('1');
   });
 
   test("n'écrit ni jeton ni adresse complète dans les journaux du serveur", async () => {
@@ -514,5 +742,51 @@ test.describe('parcours de connexion', () => {
 
     const tokens = output.match(/appui_feux_session=([A-Za-z0-9_-]{43})/g) ?? [];
     expect(tokens, `jeton de session journalisé : ${tokens.join(', ')}`).toStrictEqual([]);
+  });
+});
+
+/**
+ * GARDE-FOU DE CONFIGURATION.
+ *
+ * POURQUOI CE GROUPE EXISTE, ET CE QUE SON ABSENCE A COÛTÉ. `SELF_HOSTED_SPECS` supprime le
+ * serveur commun quand tous les fichiers visés montent le leur. La liste citait DEUX fichiers
+ * alors que QUATRE le font : viser seuls `organizations-administration.spec.ts` ou
+ * `accessibility.spec.ts` avec `CI=1` faisait monter le serveur commun sur un port déjà occupé —
+ * « `http://localhost:3000` is already used », zéro test joué. Les en-têtes des deux fichiers
+ * réclamaient eux-mêmes l'inscription ; personne ne l'avait faite, et rien ne le disait. Un
+ * oubli qui ne rougit nulle part se découvre en intégration continue, sur le commit de
+ * quelqu'un d'autre.
+ *
+ * POURQUOI L'ÉGALITÉ, ET NON L'INCLUSION. Une liste qui cite un fichier devenu dépendant du
+ * serveur commun le priverait de serveur, donc le ferait échouer sans rien expliquer. Les deux
+ * dérives se valent, l'assertion les couvre toutes les deux.
+ *
+ * POURQUOI ICI. Le garde-fou appartient à la porte qu'il protège : il est joué par
+ * `npx playwright test`, sur les deux projets, et ce fichier est lui-même l'un des autonomes
+ * qu'il énumère. Il ne prend aucune fixture — ni navigateur, ni serveur, ni base — et vit hors du
+ * groupe en série : un échec du parcours de connexion ne peut pas le priver d'exécution.
+ */
+test.describe('configuration de la suite de bout en bout', () => {
+  test('SELF_HOSTED_SPECS énumère exactement les fichiers qui montent leur propre serveur', () => {
+    const specs = readdirSync(E2E_DIRECTORY)
+      .filter((entry) => entry.endsWith('.spec.ts'))
+      .sort();
+    expect(
+      specs.length,
+      'aucun fichier de test lu : le répertoire e2e a changé de place',
+    ).toBeGreaterThan(0);
+
+    const autonomous = specs.filter((spec) =>
+      SELF_HOSTED_SERVER_PATTERN.test(readFileSync(path.join(E2E_DIRECTORY, spec), 'utf8')),
+    );
+    expect(
+      autonomous.length,
+      'aucun fichier reconnu comme autonome : le motif de détection ne correspond plus au code qui démarre `next start`',
+    ).toBeGreaterThan(0);
+
+    expect(
+      [...SELF_HOSTED_SPECS].sort(),
+      'SELF_HOSTED_SPECS ne correspond plus aux fichiers qui montent leur propre serveur : un fichier autonome absent de la liste fait monter le serveur commun pour rien, et echoue en integration continue si le port 3000 est pris ; un fichier present a tort est prive du serveur dont il depend',
+    ).toStrictEqual(autonomous);
   });
 });
